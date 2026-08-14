@@ -166,3 +166,9 @@ cython_debug/
 
 .claude/
 checkpoints/
+
+# 临时测试脚本与工具
+_tmp_test/
+
+# 新生成的模拟回放数据（内置的 example 已追踪，不受影响）
+results/compressed/

@@ -1,5 +1,6 @@
 """generative_agents.model.llm_model"""
 
+import os
 import time
 import re
 import requests
@@ -8,7 +9,8 @@ from magentic import prompt
 
 class LLMModel:
     def __init__(self, config):
-        self._api_key = config["api_key"]
+        # 优先从环境变量读取 API Key（由 .env 提供，避免密钥进入版本库）
+        self._api_key = os.getenv("LLM_API_KEY", config["api_key"])
         self._base_url = config["base_url"]
         self._model = config["model"]
         self._summary = {"total": [0, 0, 0]}

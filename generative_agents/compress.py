@@ -270,12 +270,180 @@ def generate_report(checkpoints_folder, compressed_folder, compressed_file):
         compressed_file.write(all_markdown_content)
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--name", type=str, default="", help="the name of the simulation")
-args = parser.parse_args()
+class LiveCompressor:
+    """逐步生成回放帧数据(供实时可视化使用)。
+
+    与 ``generate_movement`` 共用同一套帧生成逻辑，但不需要一次性读取全部存档文件：
+    模拟每完成一个 step，调用一次 :meth:`add_step`，即可得到该 step 对应的 60 帧数据，
+    由 live.py 通过 SSE 推送给前端。
+    """
+
+    def __init__(self, checkpoints_folder, static_root="frontend/static"):
+        self.checkpoints_folder = checkpoints_folder
+        self.static_root = static_root
+        self.conversation_file = os.path.join(checkpoints_folder, "conversation.json")
+
+        # 加载地图数据，用于计算Agent移动路径
+        maze_path = os.path.join(static_root, "assets/village/maze.json")
+        with open(maze_path, "r", encoding="utf-8") as f:
+            self.maze = Maze(json.load(f), None)
+
+        self.persona_init_pos = dict()
+        self.all_movement = dict()
+        self.all_movement["description"] = dict()
+        self.all_movement["conversation"] = dict()
+        self.last_location = dict()
+        self.started = False
+        self.start_datetime = ""
+
+    def _insert_frame0(self, agent_name):
+        """插入第0帧数据（Agent的初始状态），与 ``insert_frame0`` 逻辑一致"""
+        key = "0"
+        if key not in self.all_movement.keys():
+            self.all_movement[key] = dict()
+
+        json_path = os.path.join(
+            self.static_root, f"assets/village/agents/{agent_name}/agent.json"
+        )
+        with open(json_path, "r", encoding="utf-8") as f:
+            json_data = json.load(f)
+            address = json_data["spatial"]["address"]["living_area"]
+        location = get_location(address)
+        coord = json_data["coord"]
+        self.persona_init_pos[agent_name] = coord
+        self.all_movement[key][agent_name] = {
+            "location": location,
+            "movement": coord,
+            "description": "正在睡觉",
+        }
+        self.all_movement["description"][agent_name] = {
+            "currently": json_data["currently"],
+            "scratch": json_data["scratch"],
+        }
+        return self.all_movement["description"][agent_name]
+
+    def add_step(self, json_data):
+        """处理单个 step 的存档数据，返回该 step 的帧数据。
+
+        返回值：``(frames, conversation)``
+        - ``frames``: {帧号: {agent: {location, movement, action}}}，帧号从 1 开始计数；
+        - ``conversation``: {step_time: 对话文本}，供前端按时间显示对话内容。
+        """
+        step = json_data["step"]
+        agents = json_data["agents"]
+
+        # 首次调用时插入第0帧
+        new_description = {}
+        if not self.started:
+            for agent_name in agents:
+                new_description[agent_name] = self._insert_frame0(agent_name)
+            self.started = True
+            if len(self.start_datetime) < 1:
+                self.start_datetime = json_data["time"]
+
+        # 读取该 step 的对话数据（模拟线程每步都会重写 conversation.json）
+        conversation = {}
+        if os.path.exists(self.conversation_file):
+            with open(self.conversation_file, "r", encoding="utf-8") as f:
+                conversation = json.load(f)
+
+        step_time = json_data["time"]
+        step_conversation = ""
+        persons_in_conversation = []
+        if step_time in conversation.keys():
+            for chats in conversation[step_time]:
+                for persons, chat in chats.items():
+                    persons_in_conversation.append(
+                        persons.split(" @ ")[0].split(" -> ")
+                    )
+                    step_conversation += f"\n地点：{persons.split(' @ ')[1]}\n\n"
+                    for c in chat:
+                        agent = c[0]
+                        text = c[1]
+                        step_conversation += f"{agent}：{text}\n"
+
+        frames = dict()
+        for agent_name, agent_data in agents.items():
+            source_coord = self.last_location.get(
+                agent_name, self.all_movement["0"][agent_name]
+            )["movement"]
+            target_coord = agent_data["coord"]
+            location = get_location(agent_data["action"]["event"]["address"])
+            if location is None:
+                location = self.last_location.get(
+                    agent_name, self.all_movement["0"][agent_name]
+                )["location"]
+                path = [source_coord]
+            else:
+                path = self.maze.find_path(source_coord, target_coord)
+
+            # 判断该存档文件中当前Agent是否有新的对话（用于设置图标）
+            had_conversation = False
+            for persons in persons_in_conversation:
+                if agent_name in persons:
+                    had_conversation = True
+                    break
+
+            for i in range(frames_per_step):
+                moving = len(path) > 1
+                if len(path) > 0:
+                    movement = list(path[0])
+                    path = path[1:]
+                    if agent_name not in self.last_location.keys():
+                        self.last_location[agent_name] = dict()
+                    self.last_location[agent_name]["movement"] = movement
+                    self.last_location[agent_name]["location"] = location
+                else:
+                    movement = None
+
+                if moving:
+                    action = f"前往 {location}"
+                elif movement is not None:
+                    action = agent_data["action"]["event"]["describe"]
+                    if len(action) < 1:
+                        action = f'{agent_data["action"]["event"]["predicate"]}{agent_data["action"]["event"]["object"]}'
+
+                    # 针对睡觉和对话设置图标
+                    if "睡觉" in action:
+                        action = "😴 " + action
+                    elif had_conversation:
+                        action = "💬 " + action
+
+                step_key = "%d" % ((step - 1) * frames_per_step + 1 + i)
+                if step_key not in frames.keys():
+                    frames[step_key] = dict()
+
+                if movement is not None:
+                    frames[step_key][agent_name] = {
+                        "location": location,
+                        "movement": movement,
+                        "action": action,
+                    }
+
+        self.all_movement["conversation"][step_time] = step_conversation
+        # 累积到 all_movement，供 snapshot()（新连接客户端追赶进度）使用
+        self.all_movement.update(frames)
+        return frames, {step_time: step_conversation}, new_description
+
+    def snapshot(self):
+        """返回当前已生成的全部帧数据（供新连接的客户端追赶进度）"""
+        frames = dict()
+        for key, value in self.all_movement.items():
+            if key not in ("description", "conversation"):
+                frames[key] = value
+        return {
+            "type": "step",
+            "frames": frames,
+            "conversation": self.all_movement["conversation"],
+            "description": self.all_movement["description"],
+        }
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--name", type=str, default="", help="the name of the simulation")
+    args = parser.parse_args()
+
     name = args.name
     if len(name) < 1:
         name = input("Please enter a simulation name: ")

@@ -9,15 +9,15 @@ from dotenv import load_dotenv, find_dotenv
 from modules.game import create_game, get_game
 from modules import utils
 
+# 加载 .env（API Key 等敏感配置），供本模块及 import 本模块的 live.py 使用
+load_dotenv(find_dotenv())
+
 personas = [
-    "阿伊莎", "克劳斯", "玛丽亚", "沃尔夫冈",  # 学生
-    "梅", "约翰", "埃迪",  # 家庭：教授、药店主人、学生
-    "简", "汤姆",  # 家庭：家庭主妇、市场主人
-    "卡门", "塔玛拉",  # 室友：供应店主人、儿童读物作家
-    "亚瑟", "伊莎贝拉",  # 酒吧老板、咖啡馆老板
-    "山姆", "詹妮弗",  # 家庭：退役军官、水彩画家
-    "弗朗西斯科", "海莉", "拉吉夫", "拉托亚",  # 共居空间：喜剧演员、作家、画家、摄影师
-    "阿比盖尔", "卡洛斯", "乔治", "瑞恩", "山本百合子", "亚当",  # 动画师、诗人、数学家、软件工程师、税务律师、哲学家
+    "沈砚之",  # 首席投资顾问：价值投资派，负责资产配置与投资决策
+    "苏清越",  # 量化交易分析师：数据驱动，负责交易模型与信号
+    "陈慕白",  # 行业研究员：基本面分析，负责个股与行业调研
+    "林晚晴",  # 风控合规专员：风险敏感，负责风险评估与止损设定
+    "老周",    # 资深散户投资者：经验丰富但情绪化，易受市场情绪影响
 ]
 
 
@@ -68,7 +68,7 @@ class SimulateServer:
         )
         self.start_step = start_step
 
-    def simulate(self, step, stride=0):
+    def simulate(self, step, stride=0, on_step=None):
         timer = utils.get_timer()
         for i in range(self.start_step, self.start_step + step):
             title = "Simulate Step[{}/{}, time: {}]".format(i+1, self.start_step + step, timer.get_date())
@@ -99,6 +99,10 @@ class SimulateServer:
             # 保存对话数据
             with open(f"{self.checkpoints_folder}/conversation.json", "w", encoding="utf-8") as f:
                 f.write(json.dumps(self.game.conversation, indent=2, ensure_ascii=False))
+
+            # 实时可视化：每完成一个 step 通知外部（例如通过 SSE 推送给浏览器）
+            if on_step is not None:
+                on_step(self.config)
 
             if stride > 0:
                 timer.forward(stride)
@@ -157,20 +161,17 @@ def get_config(start_time="20240213-09:30", stride=15, agents=None):
     return config
 
 
-load_dotenv(find_dotenv())
-
-parser = argparse.ArgumentParser(description="console for village")
-parser.add_argument("--name", type=str, default="", help="The simulation name")
-parser.add_argument("--start", type=str, default="20240213-09:30", help="The starting time of the simulated ville")
-parser.add_argument("--resume", action="store_true", help="Resume running the simulation")
-parser.add_argument("--step", type=int, default=10, help="The simulate step")
-parser.add_argument("--stride", type=int, default=10, help="The step stride in minute")
-parser.add_argument("--verbose", type=str, default="debug", help="The verbose level")
-parser.add_argument("--log", type=str, default="", help="Name of the log file")
-args = parser.parse_args()
-
-
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="console for village")
+    parser.add_argument("--name", type=str, default="", help="The simulation name")
+    parser.add_argument("--start", type=str, default="20240213-09:30", help="The starting time of the simulated ville")
+    parser.add_argument("--resume", action="store_true", help="Resume running the simulation")
+    parser.add_argument("--step", type=int, default=10, help="The simulate step")
+    parser.add_argument("--stride", type=int, default=10, help="The step stride in minute")
+    parser.add_argument("--verbose", type=str, default="debug", help="The verbose level")
+    parser.add_argument("--log", type=str, default="", help="Name of the log file")
+    args = parser.parse_args()
+
     checkpoints_path = "results/checkpoints"
 
     name = args.name

@@ -11,6 +11,12 @@
 	let execute_count = execute_count_max;
 	let all_movement = {{ all_movement|tojson }};
 
+	// Live mode (直播模式): 数据通过 SSE 实时推送，而非一次性注入
+	let live_mode = {{ live_mode|default(false)|tojson }};
+	let waiting = false;
+	let sim_finished = false;
+	let sim_error = "";
+
 	let datetime_options = { weekday: "long", year: "numeric", month: "long", day: "numeric" };
 	let start_datetime = new Date(Date.parse({{ start_datetime|tojson }}));
 
@@ -62,6 +68,27 @@
 	const game = new Phaser.Game(config);
 	let cursors;
 	let player;
+
+	// Live mode: 通过 SSE 接收模拟实时推送的帧数据
+	if (live_mode) {
+		const es = new EventSource("/stream");
+		es.onmessage = function(e) {
+			const msg = JSON.parse(e.data);
+			if (msg.type === "step") {
+				if (msg.frames) Object.assign(all_movement, msg.frames);
+				if (msg.conversation) Object.assign(all_movement["conversation"], msg.conversation);
+				if (msg.description) Object.assign(all_movement["description"], msg.description);
+				waiting = false;
+			} else if (msg.type === "done") {
+				sim_finished = true;
+			} else if (msg.type === "error") {
+				sim_error = msg.message || "模拟出错";
+			}
+		};
+		es.onerror = function() {
+			// EventSource 断线后会自动重连
+		};
+	}
 
 	// Preload function
 	function preload() {
@@ -191,6 +218,10 @@
 
 		// Show current time
 		currentTime = add_text(this, posX, posY, "", "#ccffcc");
+
+		// Show live status (直播模式状态显示)
+		textStatus = add_text(this, 20, posY + currentTime.height + 10 + 50, " —— ", "#ffffcc");
+		textStatus.setVisible(live_mode);
 
 		// Show conversation content
 		textConversation = add_text(this, 20, posY + currentTime.height + 10, " —— ", "#ccffcc");
@@ -341,6 +372,30 @@
 			textConversation.setText(`\n${conversation_key} 对话记录：\n` + conversation_key_text);
 		}
 
+		// Live mode: 当前帧数据尚未推送时，等待模拟，而不是结束回放
+		if (live_mode && !(step in all_movement)) {
+			waiting = true;
+			for (let i = 0; i < Object.keys(personas).length; i++) {
+				let curr_persona_name = Object.keys(personas)[i];
+				let curr_persona = personas[curr_persona_name];
+				if (pre_anims_direction_dict[curr_persona_name] == "l") curr_persona.setTexture(curr_persona_name, "left");
+				else if (pre_anims_direction_dict[curr_persona_name] == "r") curr_persona.setTexture(curr_persona_name, "right");
+				else if (pre_anims_direction_dict[curr_persona_name] == "u") curr_persona.setTexture(curr_persona_name, "up");
+				else if (pre_anims_direction_dict[curr_persona_name] == "d") curr_persona.setTexture(curr_persona_name, "down");
+				curr_persona.anims.stop();
+			}
+			if (sim_finished) {
+				textStatus.setText("✅ 模拟结束");
+				buttonPlay.text = "[直播结束]";
+				buttonPause.setVisible(false);
+			} else if (sim_error) {
+				textStatus.setText("⚠️ " + sim_error);
+			} else {
+				textStatus.setText("⏳ 等待智能体思考...");
+			}
+			return;
+		}
+
 		// Moving personas
 		for (let i = 0; i < Object.keys(personas).length; i++) {
 			let curr_persona_name = Object.keys(personas)[i];
@@ -435,6 +490,16 @@
 
 			start_datetime = new Date(start_datetime.getTime() + step_size);
 			currentTime.setText(start_datetime.toLocaleTimeString("zh-CN", datetime_options));
+
+			if (live_mode) {
+				if (sim_finished) {
+					textStatus.setText("✅ 模拟结束");
+				} else if (sim_error) {
+					textStatus.setText("⚠️ " + sim_error);
+				} else {
+					textStatus.setText("🟢 直播中 · " + start_datetime.toLocaleTimeString("zh-CN", datetime_options));
+				}
+			}
 		}
 
 		execute_count -= 1;

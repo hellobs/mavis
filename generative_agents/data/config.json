@@ -11,9 +11,9 @@
         },
         "think": {
             "llm": {
-                "provider": "ollama",
-                "model": "qwen3:4b-instruct-2507-q4_K_M",
-                "base_url": "http://127.0.0.1:11434/v1",
+                "provider": "openai",
+                "model": "deepseek-chat",
+                "base_url": "https://api.deepseek.com/v1",
                 "api_key": ""
             },
             "interval": 1000,

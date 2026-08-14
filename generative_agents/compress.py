@@ -293,6 +293,8 @@ class LiveCompressor:
         self.all_movement["description"] = dict()
         self.all_movement["conversation"] = dict()
         self.last_location = dict()
+        self.agent_states = dict()   # 直接驱动:每个 Agent 的最新状态
+        self._last_time = ""         # 最新模拟时间
         self.started = False
         self.start_datetime = ""
 
@@ -425,17 +427,107 @@ class LiveCompressor:
         self.all_movement.update(frames)
         return frames, {step_time: step_conversation}, new_description
 
+    def _find_nearby_path(self, source, target):
+        """目标 tile 不可达时,按曼哈顿距离递增寻找附近可达的 tile 并寻路。
+
+        返回: 到达附近可达点的完整路径;都不可达时返回 None(调用方原地不动)
+        """
+        for r in range(1, 6):
+            candidates = []
+            for dy in range(-r, r + 1):
+                for dx in range(-r, r + 1):
+                    if abs(dx) + abs(dy) != r:
+                        continue
+                    cx, cy = target[0] + dx, target[1] + dy
+                    if 0 <= cx < self.maze.maze_width and 0 <= cy < self.maze.maze_height:
+                        if not self.maze.tile_at([cx, cy]).collision:
+                            candidates.append([cx, cy])
+            for c in candidates:
+                p = self.maze.find_path(source, c)
+                if p:
+                    return p
+        return None
+
+    def add_agent(self, agent_name, agent_data, step, step_time):
+        """单个 Agent 思考完成:记录其新位置与动作。
+
+        直接驱动模式:不再生成 60 帧插值动画,只返回该 Agent 的最终状态,
+        由前端用补间动画平滑移动。
+
+        返回值：(agent_state, conversation, new_description)
+        - agent_state: {name, coord, action, location}
+        - conversation: {step_time: 对话文本}
+        """
+        # 首次调用时插入第0帧(提供初始位置与描述)
+        new_description = {}
+        if not self.started:
+            new_description[agent_name] = self._insert_frame0(agent_name)
+            self.started = True
+            if len(self.start_datetime) < 1:
+                self.start_datetime = step_time
+        elif agent_name not in self.all_movement["description"]:
+            new_description[agent_name] = self._insert_frame0(agent_name)
+
+        coord = agent_data["coord"]
+        source_coord = self.last_location.get(
+            agent_name, self.all_movement["0"][agent_name]
+        )["movement"]
+        location = get_location(agent_data["action"]["event"]["address"])
+        if location is None:
+            location = self.last_location.get(
+                agent_name, {"location": ""}
+            )["location"]
+            path = [source_coord]
+        else:
+            # 沿寻路路径移动(前端按路径点逐格平滑移动,不穿墙)
+            path = self.maze.find_path(source_coord, coord)
+            if not path:
+                # 目标不可达:找目标附近的可达 tile 寻路过去(绝不直线穿墙)
+                path = self._find_nearby_path(source_coord, coord)
+            if not path:
+                path = [source_coord]  # 实在不可达:原地不动
+
+        # 实际可达终点(目标不可达时,agent 停在附近可达点)
+        actual_target = path[-1] if path else coord
+
+        # 记录位置(供下次推送与快照)
+        self.last_location[agent_name] = {
+            "movement": actual_target, "location": location
+        }
+        self.agent_states[agent_name] = {
+            "name": agent_name,
+            "coord": actual_target,
+            "location": location,
+            "action": agent_data["action"]["event"].get("describe", ""),
+            "path": path,
+        }
+        self._last_time = step_time
+
+        # 当前该 step 的对话快照
+        conversation = {}
+        if os.path.exists(self.conversation_file):
+            with open(self.conversation_file, "r", encoding="utf-8") as f:
+                conversation = json.load(f)
+        step_conversation = ""
+        if step_time in conversation.keys():
+            for chats in conversation[step_time]:
+                for persons, chat in chats.items():
+                    step_conversation += f"\n地点：{persons.split(' @ ')[1]}\n\n"
+                    for c in chat:
+                        step_conversation += f"{c[0]}：{c[1]}\n"
+
+        return (
+            self.agent_states[agent_name],
+            {step_time: step_conversation},
+            new_description,
+        )
+
     def snapshot(self):
-        """返回当前已生成的全部帧数据（供新连接的客户端追赶进度）"""
-        frames = dict()
-        for key, value in self.all_movement.items():
-            if key not in ("description", "conversation"):
-                frames[key] = value
+        """返回当前所有 Agent 的状态(供新连接的客户端初始化画面)"""
         return {
-            "type": "step",
-            "frames": frames,
-            "conversation": self.all_movement["conversation"],
-            "description": self.all_movement["description"],
+            "type": "snapshot",
+            "agents": self.agent_states,
+            "time": self._last_time,
         }
 
 

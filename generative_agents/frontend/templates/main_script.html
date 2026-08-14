@@ -3,19 +3,62 @@
 	let step = {{ step|tojson }};
 	let step_size = {{ sec_per_step|tojson }} * 1000; // Convert to milliseconds
 	let zoom = {{ zoom|tojson }};
-	if (zoom <= 0) zoom = document.documentElement.clientWidth / 4400;
+	// 画布固定为地图尺寸(27x24 瓦片 = 864x768),场景 1:1 完整显示;
+	// zoom<=0 时默认 1(URL ?zoom= 可整体缩放画布)
+	if (zoom <= 0) zoom = 1;
 
 	let tile_width = 32;
-	let movement_speed = {{ play_speed|tojson }};
+	let movement_speed = {{ play_speed|tojson }} * 0.5;   // 回放模式移动速度
 	let execute_count_max = tile_width / movement_speed;
 	let execute_count = execute_count_max;
 	let all_movement = {{ all_movement|tojson }};
 
-	// Live mode (直播模式): 数据通过 SSE 实时推送，而非一次性注入
+	// Live mode (直接驱动模式): 收到 agent 消息即平滑移动
 	let live_mode = {{ live_mode|default(false)|tojson }};
-	let waiting = false;
+	let FRONTEND_VERSION = "v10-path";   // 前端版本号(排查缓存用)
+	let move_speed = 1.0;             // 像素/帧(60fps)≈ 1.9格/秒,走路观感
+	let movement_target = {};         // agent -> 路径点队列(像素)
 	let sim_finished = false;
 	let sim_error = "";
+	let display_time = null;          // 当前显示时间(Date)
+	let target_time = null;           // 目标时间(模拟推送)Date
+	let shown_chats = {};             // 已显示的对话时间点(去重)
+
+	// 对话逐句追加(说话者高亮,自动滚动)
+	function appendChatLine(speaker, text) {
+		let el = document.getElementById("chat-content");
+		if (!el) return;
+		el.innerHTML += `<div style="margin:2px 0;"><span style="font-weight:bold; color:#2d6cdf;">${speaker}</span>：${text}</div>`;
+		el.scrollTop = el.scrollHeight;
+	}
+
+	// 对话显示到 HTML 面板(可滚动,说话者高亮,自动滚到底部)
+	function appendChat(t, text) {
+		if (shown_chats[t]) return;
+		shown_chats[t] = true;
+		let el = document.getElementById("chat-content");
+		if (!el) return;
+		let html = `<div style="margin-top:8px; color:#999; font-size:12px;">🕒 ${t}</div>`;
+		let lines = String(text).split("\n");
+		for (let line of lines) {
+			line = line.trim();
+			if (!line) continue;
+			if (line.startsWith("地点：")) {
+				html += `<div style="color:#aaa; font-size:12px; margin:2px 0;">📍 ${line.slice(3)}</div>`;
+			} else {
+				let idx = line.indexOf("：");
+				if (idx > 0) {
+					let speaker = line.slice(0, idx);
+					let content = line.slice(idx + 1);
+					html += `<div style="margin:3px 0;"><span style="font-weight:bold; color:#2d6cdf;">${speaker}</span>：${content}</div>`;
+				} else {
+					html += `<div style="margin:3px 0;">${line}</div>`;
+				}
+			}
+		}
+		el.innerHTML += html;
+		el.scrollTop = el.scrollHeight;
+	}
 
 	let datetime_options = { weekday: "long", year: "numeric", month: "long", day: "numeric" };
 	let start_datetime = new Date(Date.parse({{ start_datetime|tojson }}));
@@ -33,20 +76,17 @@
 	let pre_anims_direction;
 	let pre_anims_direction_dict = {};
 
-	let movement_target = {};
-
 	let finished = false;
 	let paused = false;
 
 	// Phaser configuration
 	const config = {
 		type: Phaser.AUTO,
-		// width: 4480,
-		// height: 3200,
-        width: document.documentElement.clientWidth / zoom,
-        height: document.documentElement.clientHeight / zoom,
+		backgroundColor: "#e8e8e8",
+        width: 864,
+        height: 768,
 		parent: "game-container",
-        mode: Phaser.Scale.FIT,
+        mode: Phaser.Scale.NONE,
 		pixelArt: true,
 		physics: {
 			default: "arcade",
@@ -69,16 +109,29 @@
 	let cursors;
 	let player;
 
-	// Live mode: 通过 SSE 接收模拟实时推送的帧数据
+	// Live mode: 通过 SSE 接收模拟推送,直接驱动 agent 移动
 	if (live_mode) {
 		const es = new EventSource("/stream");
 		es.onmessage = function(e) {
 			const msg = JSON.parse(e.data);
-			if (msg.type === "step") {
-				if (msg.frames) Object.assign(all_movement, msg.frames);
-				if (msg.conversation) Object.assign(all_movement["conversation"], msg.conversation);
-				if (msg.description) Object.assign(all_movement["description"], msg.description);
-				waiting = false;
+			if (msg.type === "agent") {
+				moveAgent(msg.name, msg.coord, msg.action, msg.location, msg.currently, msg.path);
+				if (msg.conversation) {
+					Object.assign(all_movement["conversation"], msg.conversation);
+					// live 模式:对话已通过 chat_line 逐句实时显示,整段不再重复追加
+				}
+				if (msg.description) {
+					for (const n in msg.description) {
+						all_movement["description"][n] = msg.description[n];
+					}
+				}
+			} else if (msg.type === "chat_line") {
+				// 对话逐句实时显示
+				appendChatLine(msg.speaker, msg.text);
+			} else if (msg.type === "time") {
+				setCurrentTime(msg.time);
+			} else if (msg.type === "snapshot") {
+				applySnapshot(msg.agents, msg.time);
 			} else if (msg.type === "done") {
 				sim_finished = true;
 			} else if (msg.type === "error") {
@@ -88,6 +141,72 @@
 		es.onerror = function() {
 			// EventSource 断线后会自动重连
 		};
+	}
+
+	function setCurrentTime(t) {
+		if (!t || t.length < 12) return;
+		let y = parseInt(t.slice(0, 4));
+		let mo = parseInt(t.slice(4, 6));
+		let d = parseInt(t.slice(6, 8));
+		let h = parseInt(t.slice(9, 11));
+		let mi = parseInt(t.slice(11, 13));
+		let dt = new Date(y, mo - 1, d, h, mi);
+		if (isNaN(dt.getTime())) return;
+		target_time = dt;
+		if (!display_time) display_time = new Date(dt);
+	}
+
+	function applySnapshot(agents, time) {
+		for (const name in agents) {
+			if (!(name in personas)) continue;
+			const a = agents[name];
+			personas[name].body.x = a.coord[0] * tile_width;
+			personas[name].body.y = a.coord[1] * tile_width;
+			let act = (a.action || "").trim();
+			pronunciatios[name].setText(name + ": " + (act.length > 20 ? act.substring(0, 20) + "..." : act));
+			if (document.getElementById("agent_desc__" + name)) {
+				document.getElementById("current_action__" + name).innerHTML = act;
+				document.getElementById("target_address__" + name).innerHTML = a.location || "";
+			}
+		}
+		if (time) setCurrentTime(time);
+	}
+
+	function moveAgent(name, coord, action, location, currently, path) {
+		if (!(name in personas)) return;
+		// 沿寻路路径移动:waypoints = 路径点像素数组(逐格走,不穿墙)
+		let waypoints = [];
+		if (path && path.length > 0) {
+			for (let p of path) {
+				waypoints.push([p[0] * tile_width, p[1] * tile_width]);
+			}
+		} else {
+			waypoints.push([coord[0] * tile_width, coord[1] * tile_width]);
+		}
+
+		// 排队移动:若该 agent 正在走旧路径,把新路径接到队尾——
+		// 先走完旧路径(终点 = 后端记录的 last_location = 新路径起点),再走新路径。
+		// 彻底避免"移动被打断 → 对齐起点 → 瞬移"
+		let cur = movement_target[name];
+		if (cur && cur.length > 0) {
+			let last = cur[cur.length - 1];
+			if (waypoints.length > 0 && waypoints[0][0] === last[0] && waypoints[0][1] === last[1]) {
+				waypoints.shift();  // 新路径起点与队列终点相同,去重
+			}
+			movement_target[name] = cur.concat(waypoints);
+		} else {
+			movement_target[name] = waypoints;
+		}
+
+		let act = (action || "").trim();
+		if (act.includes("睡觉")) act = "😴 " + act;
+		pronunciatios[name].setText(name + ": " + (act.length > 20 ? act.substring(0, 20) + "..." : act));
+
+		if (document.getElementById("agent_desc__" + name)) {
+			if (currently) document.getElementById("agent_desc__" + name).innerHTML = currently;
+			document.getElementById("current_action__" + name).innerHTML = act;
+			document.getElementById("target_address__" + name).innerHTML = location || "";
+		}
 	}
 
 	// Preload function
@@ -216,22 +335,28 @@
 		buttonHideConversation.setInteractive();
 		posX += buttonHideConversation.width + 10;
 
-		// Show current time
-		currentTime = add_text(this, posX, posY, "", "#ccffcc");
+		// Show current time (初始显示模拟开始时间,避免空白/Invalid Date)
+		currentTime = add_text(this, posX, posY, start_datetime.toLocaleTimeString("zh-CN", datetime_options), "#ccffcc");
 
 		// Show live status (直播模式状态显示)
-		textStatus = add_text(this, 20, posY + currentTime.height + 10 + 50, " —— ", "#ffffcc");
+		textStatus = add_text(this, 20, posY + currentTime.height + 10, " —— ", "#ffffcc");
 		textStatus.setVisible(live_mode);
 
-		// Show conversation content
-		textConversation = add_text(this, 20, posY + currentTime.height + 10, " —— ", "#ccffcc");
-
 		// Setup camera
-		player = this.physics.add.sprite(2440, 500, "atlas", "down").setSize(30, 40).setOffset(0, 0);
+		player = this.physics.add.sprite(13 * tile_width, 11 * tile_width, "atlas", "down").setSize(30, 40).setOffset(0, 0);
 		player.setDepth(-1);
 		const camera = this.cameras.main;
 		camera.startFollow(player);
 		camera.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
+		// 地图完整可见时(视口 >= 地图尺寸),固定居中显示;
+		// 否则 bounds 会把相机钳制到左上角,导致画面偏左/偏上
+		if (camera.width >= map.widthInPixels || camera.height >= map.heightInPixels) {
+			camera.stopFollow();
+			camera.scrollX = (map.widthInPixels - camera.width) / 2;
+			camera.scrollY = (map.heightInPixels - camera.height) / 2;
+		} else {
+			camera.centerOn(map.widthInPixels / 2, map.heightInPixels / 2);
+		}
 		cursors = this.input.keyboard.createCursorKeys();
 
 		// Setup personas
@@ -272,7 +397,8 @@
 			let up_walk_name = persona_name + "-up-walk";
 
 			frameRate = 4;
-			if (movement_speed > 1) frameRate = 8;
+			if (live_mode) frameRate = 10;             // 直播模式走路动画跟上移动速度
+			else if (movement_speed > 1) frameRate = 8;
 
 			anims.create({
 				key: left_walk_name,
@@ -324,13 +450,13 @@
 		buttonShowConversation.on("pointerdown", function() {
 			buttonShowConversation.text = "[显示对话]";
 			buttonHideConversation.text = " 隐藏对话 ";
-			textConversation.setVisible(true);
+			document.getElementById("chat-panel").style.display = "flex";
 		});
 
 		buttonHideConversation.on("pointerdown", function() {
 			buttonShowConversation.text = " 显示对话 ";
 			buttonHideConversation.text = "[隐藏对话]";
-			textConversation.setVisible(false);
+			document.getElementById("chat-panel").style.display = "none";
 		});
 
 		// Move camera
@@ -356,152 +482,147 @@
 			document.getElementById("temp_focus").innerHTML = "";
 		}
 
-		if (finished || paused) {
-			return;
-		}
-
-		curr_datetime = new Date(start_datetime.getTime());
-		curr_year = curr_datetime.getFullYear().toString().padStart(4, "0");
-		curr_month = (curr_datetime.getMonth() + 1).toString().padStart(2, "0");
-		curr_day = curr_datetime.getDate().toString().padStart(2, "0");
-		curr_hour = curr_datetime.getHours().toString().padStart(2, "0");
-		curr_minute = curr_datetime.getMinutes().toString().padStart(2, "0");
-		conversation_key = `${curr_year}${curr_month}${curr_day}-${curr_hour}:${curr_minute}`;
-		conversation_key_text = all_movement["conversation"][conversation_key];
-		if (conversation_key_text && conversation_key_text != "") {
-			textConversation.setText(`\n${conversation_key} 对话记录：\n` + conversation_key_text);
-		}
-
-		// Live mode: 当前帧数据尚未推送时，等待模拟，而不是结束回放
-		if (live_mode && !(step in all_movement)) {
-			waiting = true;
-			for (let i = 0; i < Object.keys(personas).length; i++) {
-				let curr_persona_name = Object.keys(personas)[i];
-				let curr_persona = personas[curr_persona_name];
-				if (pre_anims_direction_dict[curr_persona_name] == "l") curr_persona.setTexture(curr_persona_name, "left");
-				else if (pre_anims_direction_dict[curr_persona_name] == "r") curr_persona.setTexture(curr_persona_name, "right");
-				else if (pre_anims_direction_dict[curr_persona_name] == "u") curr_persona.setTexture(curr_persona_name, "up");
-				else if (pre_anims_direction_dict[curr_persona_name] == "d") curr_persona.setTexture(curr_persona_name, "down");
-				curr_persona.anims.stop();
+		if (live_mode) {
+			// 时间平滑流动:显示时间以 2 倍速向模拟推送的目标时间推进,避免跳变
+			if (target_time) {
+				if (!display_time) display_time = new Date(target_time);
+				let diff = target_time.getTime() - display_time.getTime();
+				if (diff > 500) {
+					display_time = new Date(display_time.getTime() + delta * 2);
+					if (display_time.getTime() >= target_time.getTime()) {
+						display_time = new Date(target_time);
+					}
+					currentTime.setText(display_time.toLocaleTimeString("zh-CN", datetime_options));
+				}
 			}
 			if (sim_finished) {
-				textStatus.setText("✅ 模拟结束");
+				textStatus.setText("✅ 模拟结束 (" + FRONTEND_VERSION + ")");
 				buttonPlay.text = "[直播结束]";
 				buttonPause.setVisible(false);
 			} else if (sim_error) {
-				textStatus.setText("⚠️ " + sim_error);
+				textStatus.setText("⚠️ " + sim_error + " (" + FRONTEND_VERSION + ")");
 			} else {
-				textStatus.setText("⏳ 等待智能体思考...");
+				textStatus.setText("🟢 直播中 · " + currentTime.text + " (" + FRONTEND_VERSION + ")");
 			}
+		} else if (finished || paused) {
 			return;
 		}
 
-		// Moving personas
+		// ---- 回放模式:按帧推进,设置各 agent 移动目标 ----
+		if (!live_mode) {
+			if (step in all_movement) {
+				for (let i = 0; i < Object.keys(personas).length; i++) {
+					let curr_persona_name = Object.keys(personas)[i];
+					let data = all_movement[step][curr_persona_name.replace("_", " ")];
+					if (data && data.movement) {
+						movement_target[curr_persona_name] = [
+							[data.movement[0] * tile_width, data.movement[1] * tile_width]
+						];
+					}
+				}
+			}
+
+			curr_datetime = new Date(start_datetime.getTime());
+			curr_year = curr_datetime.getFullYear().toString().padStart(4, "0");
+			curr_month = (curr_datetime.getMonth() + 1).toString().padStart(2, "0");
+			curr_day = curr_datetime.getDate().toString().padStart(2, "0");
+			curr_hour = curr_datetime.getHours().toString().padStart(2, "0");
+			curr_minute = curr_datetime.getMinutes().toString().padStart(2, "0");
+			conversation_key = `${curr_year}${curr_month}${curr_day}-${curr_hour}:${curr_minute}`;
+			conversation_key_text = all_movement["conversation"][conversation_key];
+			if (conversation_key_text && conversation_key_text != "") {
+				appendChat(conversation_key, conversation_key_text);
+			}
+
+			if (execute_count == 0) {
+				execute_count = execute_count_max + 1;
+				step = step + 1;
+				start_datetime = new Date(start_datetime.getTime() + step_size);
+				currentTime.setText(start_datetime.toLocaleTimeString("zh-CN", datetime_options));
+			}
+			execute_count -= 1;
+		}
+
+		// ---- 统一移动:所有有目标的 agent 沿路径点平滑移动 ----
+		// 速度按时间(delta)恒定,避免高刷新率屏幕(120/144Hz)上移动过快像平移
+		let step_px = 0.8 * (delta || 16.67) / 16.67;   // 恒定 ~48px/s ≈ 1.5格/秒
 		for (let i = 0; i < Object.keys(personas).length; i++) {
 			let curr_persona_name = Object.keys(personas)[i];
 			let curr_persona = personas[curr_persona_name];
-			let curr_pronunciatio = pronunciatios[Object.keys(personas)[i]];
+			let curr_pronunciatio = pronunciatios[curr_persona_name];
+			let waypoints = movement_target[curr_persona_name];
+			if (!waypoints || waypoints.length === 0) continue;
 
-			if (step in all_movement) {
-				if (curr_persona_name.replace("_", " ") in all_movement[step]) {
-					if (execute_count == execute_count_max) {
-						let curr_x = all_movement[step][curr_persona_name.replace("_", " ")]["movement"][0];
-						let curr_y = all_movement[step][curr_persona_name.replace("_", " ")]["movement"][1];
-						movement_target[curr_persona_name] = [curr_x * tile_width, curr_y * tile_width];
+			let target = waypoints[0];
+			let dx = target[0] - curr_persona.body.x;
+			let dy = target[1] - curr_persona.body.y;
+			let dist = Math.sqrt(dx * dx + dy * dy);
 
-						let action = all_movement[step][curr_persona_name.replace("_", " ")]["action"];
+			// 保险:当前位置与路径起点偏差过大(丢消息/重连导致不同步)时,
+			// 先对齐到路径起点再逐点走,绝不让 agent 直线飞过去穿墙
+			if (dist > tile_width * 3) {
+				curr_persona.body.x = target[0];
+				curr_persona.body.y = target[1];
+				curr_pronunciatio.x = target[0] - 15;
+				curr_pronunciatio.y = target[1] - 15 - 25;
+				continue;
+			}
 
-						let act = action;
-						act = act.length > 25 ? act.substring(0, 20)+"..." : act;
-						pronunciatios[curr_persona_name].setText(curr_persona_name + ": " + act);
-
-						// Updating the status of each personas
-						document.getElementById("agent_desc__"+curr_persona_name).innerHTML = all_movement["description"][curr_persona_name]["currently"];
-						document.getElementById("current_action__"+curr_persona_name).innerHTML = action;
-						document.getElementById("target_address__"+curr_persona_name).innerHTML = all_movement[step][curr_persona_name.replace("_", " ")]["location"];
-					}
-
-					if (execute_count > 0) {
-						if (curr_persona.body.x < movement_target[curr_persona_name][0]) {
-							curr_persona.body.x += movement_speed;
-							anims_direction = "r";
-							pre_anims_direction = "r";
-							pre_anims_direction_dict[curr_persona_name] = "r";
-						} else if (curr_persona.body.x > movement_target[curr_persona_name][0]) {
-							curr_persona.body.x -= movement_speed;
-							anims_direction = "l";
-							pre_anims_direction = "l";
-							pre_anims_direction_dict[curr_persona_name] = "l";
-						} else if (curr_persona.body.y < movement_target[curr_persona_name][1]) {
-							curr_persona.body.y += movement_speed;
-							anims_direction = "d";
-							pre_anims_direction = "d";
-							pre_anims_direction_dict[curr_persona_name] = "d";
-						} else if (curr_persona.body.y > movement_target[curr_persona_name][1]) {
-							curr_persona.body.y -= movement_speed;
-							anims_direction = "u";
-							pre_anims_direction = "u";
-							pre_anims_direction_dict[curr_persona_name] = "u";
-						} else {
-							anims_direction = "";
-						}
-
-						curr_pronunciatio.x = curr_persona.body.x - 15;
-						curr_pronunciatio.y = curr_persona.body.y - 15 - 25;
-
-						let left_walk_name = curr_persona_name + "-left-walk";
-						let right_walk_name = curr_persona_name + "-right-walk";
-						let down_walk_name = curr_persona_name + "-down-walk";
-						let up_walk_name = curr_persona_name + "-up-walk";
-
-						if (anims_direction == "l") {
-							curr_persona.anims.play(left_walk_name, true);
-						} else if (anims_direction == "r") {
-							curr_persona.anims.play(right_walk_name, true);
-						} else if (anims_direction == "u") {
-							curr_persona.anims.play(up_walk_name, true);
-						} else if (anims_direction == "d") {
-							curr_persona.anims.play(down_walk_name, true);
-						}
-					}
+			if (dist <= step_px) {
+				// 到达当前路径点:精确落位,取下一个点
+				curr_persona.body.x = target[0];
+				curr_persona.body.y = target[1];
+				waypoints.shift();
+				if (waypoints.length === 0) {
+					delete movement_target[curr_persona_name];
+					// 全部走完:停止走路动画
+					let d = pre_anims_direction_dict[curr_persona_name];
+					if (d == "l") curr_persona.setTexture(curr_persona_name, "left");
+					else if (d == "r") curr_persona.setTexture(curr_persona_name, "right");
+					else if (d == "u") curr_persona.setTexture(curr_persona_name, "up");
+					else if (d == "d") curr_persona.setTexture(curr_persona_name, "down");
+					curr_persona.anims.stop();
 				}
 			} else {
-				if (pre_anims_direction_dict[curr_persona_name] == "l") curr_persona.setTexture(curr_persona_name, "left");
-				else if (pre_anims_direction_dict[curr_persona_name] == "r") curr_persona.setTexture(curr_persona_name, "right");
-				else if (pre_anims_direction_dict[curr_persona_name] == "u") curr_persona.setTexture(curr_persona_name, "up");
-				else if (pre_anims_direction_dict[curr_persona_name] == "d") curr_persona.setTexture(curr_persona_name, "down");
-				curr_persona.anims.stop();
+				// 向当前路径点平滑移动
+				let vx = dx / dist * step_px;
+				let vy = dy / dist * step_px;
+				curr_persona.body.x += vx;
+				curr_persona.body.y += vy;
 
-				finished = true;
-				buttonPlay.text = "[回放结束]";
-				buttonPause.setVisible(false);
+				// 走路动画(按移动方向)
+				let dir = Math.abs(dx) > Math.abs(dy) ? (vx > 0 ? "r" : "l") : (vy > 0 ? "d" : "u");
+				pre_anims_direction_dict[curr_persona_name] = dir;
+				curr_persona.anims.play(curr_persona_name + "-" + dir + "-walk", true);
 			}
 		}
 
-		if (execute_count == 0) {
-			for (let i = 0; i < Object.keys(personas).length; i++) {
-				let curr_persona_name = Object.keys(personas)[i];
-				let curr_persona = personas[curr_persona_name];
-				curr_persona.body.x = movement_target[curr_persona_name][0];
-				curr_persona.body.y = movement_target[curr_persona_name][1];
-			}
-			execute_count = execute_count_max + 1;
-			step = step + 1;
-
-			start_datetime = new Date(start_datetime.getTime() + step_size);
-			currentTime.setText(start_datetime.toLocaleTimeString("zh-CN", datetime_options));
-
-			if (live_mode) {
-				if (sim_finished) {
-					textStatus.setText("✅ 模拟结束");
-				} else if (sim_error) {
-					textStatus.setText("⚠️ " + sim_error);
-				} else {
-					textStatus.setText("🟢 直播中 · " + start_datetime.toLocaleTimeString("zh-CN", datetime_options));
-				}
-			}
+		// ---- 文字框:每帧重置到各自 agent 头顶(基准位置),再检测重叠错开 ----
+		for (let i = 0; i < Object.keys(personas).length; i++) {
+			let name = Object.keys(personas)[i];
+			pronunciatios[name].x = personas[name].body.x - 15;
+			pronunciatios[name].y = personas[name].body.y - 15 - 25;
 		}
 
-		execute_count -= 1;
+		// ---- 文字框防重叠:相邻 agent 的文字框垂直错开,避免互相遮挡 ----
+		// 基于每帧重置后的基准位置检测,重叠才偏移;agent 走开后自然回到头顶
+		let bubbles = [];
+		for (let i = 0; i < Object.keys(personas).length; i++) {
+			let name = Object.keys(personas)[i];
+			let b = pronunciatios[name];
+			if (!b.text) continue;
+			bubbles.push({ name: name, x: b.x, y: b.y, w: b.width, h: b.height });
+		}
+		bubbles.sort((a, b) => a.y - b.y || a.x - b.x);
+		for (let i = 1; i < bubbles.length; i++) {
+			let prev = bubbles[i - 1];
+			let cur = bubbles[i];
+			if (cur.x < prev.x + prev.w && prev.x < cur.x + cur.w &&
+				cur.y < prev.y + prev.h && prev.y < cur.y + cur.h) {
+				pronunciatios[cur.name].y = prev.y + prev.h + 2;
+				cur.y = pronunciatios[cur.name].y;
+				cur.h = pronunciatios[cur.name].height;
+			}
+		}
 	}
 </script>

@@ -4,10 +4,18 @@ import os
 import math
 import random
 import datetime
+import threading
 
 from modules import memory, prompt, utils
 from modules.model.llm_model import create_llm_model
 from modules.memory.associate import Concept
+
+# 对话互斥锁:并行思考时,同一时刻只允许一场对话进行,
+# 避免两个 Agent 同时发起对话导致记录交叉、状态错乱
+chat_lock = threading.Lock()
+
+# 对话逐句回调:由 live.py 设置,每生成一句话实时推送给前端(不用等整段完成)
+chat_callback = None
 
 
 class Agent:
@@ -499,6 +507,15 @@ class Agent:
         return False
 
     def _chat_with(self, other, focus):
+        # 对话互斥:同一时刻只允许一场对话。拿不到锁说明已有对话在进行,本次放弃
+        if not chat_lock.acquire(blocking=False):
+            return False
+        try:
+            return self._chat_with_locked(other, focus)
+        finally:
+            chat_lock.release()
+
+    def _chat_with_locked(self, other, focus):
         if len(self.schedule.daily_schedule) < 1 or len(other.schedule.daily_schedule) < 1:
             # initializing
             return False
@@ -517,11 +534,13 @@ class Agent:
                     self.name, other.name, delta, chats[0]
                 )
             )
-            if delta < 60:
+            if delta < 20:
                 return False
 
         if not self.completion("decide_chat", self, other, focus, chats):
-            return False
+            # 提高对话频率:即使 LLM 不倾向,也有一半概率继续尝试
+            if random.random() < 0.5:
+                return False
 
         self.logger.info("{} decides chat with {}".format(self.name, other.name))
         start, chats = utils.get_timer().get_date(), []
@@ -534,6 +553,9 @@ class Agent:
             text = self.completion(
                 "generate_chat", self, other, relations[0], chats
             )
+            # 逐句实时推送(不用等整段对话完成)
+            if chat_callback:
+                chat_callback(self.name, text)
 
             if i > 0:
                 # 对于发起对话的Agent，从第2轮对话开始，检查是否出现“复读”现象
@@ -556,6 +578,9 @@ class Agent:
             text = other.completion(
                 "generate_chat", other, self, relations[1], chats
             )
+            # 逐句实时推送
+            if chat_callback:
+                chat_callback(other.name, text)
             if i > 0:
                 # 对于响应对话的Agent，从第2轮开始，检查是否出现“复读”现象
                 end = self.completion(

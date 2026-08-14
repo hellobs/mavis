@@ -6,10 +6,14 @@ from flask import Flask, render_template, request
 from compress import frames_per_step, file_movement
 from start import personas
 
+# 以脚本所在目录为基准,不依赖运行时的当前目录
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+RESULTS_DIR = os.path.join(BASE_DIR, "results", "compressed")
+
 app = Flask(
     __name__,
-    template_folder="frontend/templates",
-    static_folder="frontend/static",
+    template_folder=os.path.join(BASE_DIR, "frontend/templates"),
+    static_folder=os.path.join(BASE_DIR, "frontend/static"),
     static_url_path="/static",
 )
 
@@ -22,11 +26,11 @@ def index():
     zoom = float(request.args.get("zoom", 0.8))  # 画面缩放比例
 
     if len(name) > 0:
-        compressed_folder = f"results/compressed/{name}"
+        compressed_folder = os.path.join(RESULTS_DIR, name)
     else:
         return f"Invalid name of the simulation: '{name}'"
 
-    replay_file = f"{compressed_folder}/{file_movement}"
+    replay_file = os.path.join(compressed_folder, file_movement)
     if not os.path.exists(replay_file):
         return f"The data file doesn‘t exist: '{replay_file}'<br />Run compress.py to generate the data first."
 

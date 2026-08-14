@@ -4,6 +4,7 @@ import os
 import time
 import re
 import requests
+import concurrent.futures
 from magentic import prompt
 
 
@@ -23,6 +24,12 @@ class LLMModel:
             "setup is not support for " + str(self.__class__)
         )
 
+    def _completion_timeout(self, prompt, return_type, timeout=90, **kwargs):
+        """带超时的 LLM 调用：防止 API 挂起导致模拟无限卡住(超时后按失败重试)"""
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(self._completion, prompt, return_type, **kwargs)
+            return future.result(timeout=timeout)
+
     def completion(
         self,
         prompt,
@@ -37,7 +44,7 @@ class LLMModel:
         self._summary.setdefault(caller, [0, 0, 0])
         for _ in range(retry):
             try:
-                output = self._completion(prompt, return_type, **kwargs)
+                output = self._completion_timeout(prompt, return_type, **kwargs)
                 self._summary["total"][0] += 1
                 self._summary[caller][0] += 1
                 if callback:

@@ -3,6 +3,7 @@ import copy
 import json
 import argparse
 import datetime
+import concurrent.futures
 
 from dotenv import load_dotenv, find_dotenv
 
@@ -68,25 +69,40 @@ class SimulateServer:
         )
         self.start_step = start_step
 
-    def simulate(self, step, stride=0, on_step=None):
+    def simulate(self, step, stride=0, on_step=None, on_agent=None):
         timer = utils.get_timer()
         for i in range(self.start_step, self.start_step + step):
             title = "Simulate Step[{}/{}, time: {}]".format(i+1, self.start_step + step, timer.get_date())
             self.logger.info("\n" + utils.split_line(title, "="))
-            for name, status in self.agent_status.items():
-                plan = self.game.agent_think(name, status)["plan"]
-                agent = self.game.get_agent(name)
-                if name not in self.config["agents"]:
-                    self.config["agents"][name] = {}
-                self.config["agents"][name].update(agent.to_dict())
-                if plan.get("path"):
-                    status["coord"], status["path"] = plan["path"][-1], []
-                self.config["agents"][name].update(
-                    # {"coord": status["coord"], "path": plan["path"]}
-                    {"coord": status["coord"]}
-                )
-
             sim_time = timer.get_date("%Y%m%d-%H:%M")
+
+            # 并行思考所有 Agent(DeepSeek API 支持并发,大幅缩短单步耗时)
+            # 对话通过 agent 内的互斥锁保证同一时刻只有一场对话
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=max(1, len(self.agent_status))
+            ) as executor:
+                futures = {
+                    executor.submit(self.game.agent_think, name, status): name
+                    for name, status in self.agent_status.items()
+                }
+                for fut in concurrent.futures.as_completed(futures):
+                    name = futures[fut]
+                    plan = fut.result()["plan"]
+                    agent = self.game.get_agent(name)
+                    if name not in self.config["agents"]:
+                        self.config["agents"][name] = {}
+                    self.config["agents"][name].update(agent.to_dict())
+                    status = self.agent_status[name]
+                    if plan.get("path"):
+                        status["coord"], status["path"] = plan["path"][-1], []
+                    self.config["agents"][name].update(
+                        {"coord": status["coord"]}
+                    )
+
+                    # 逐 Agent 回调:单个 Agent 思考完成即可推送(实时可视化)
+                    if on_agent is not None:
+                        on_agent(name, self.config["agents"][name], i + 1, sim_time)
+
             self.config.update(
                 {
                     "time": sim_time,
@@ -100,7 +116,7 @@ class SimulateServer:
             with open(f"{self.checkpoints_folder}/conversation.json", "w", encoding="utf-8") as f:
                 f.write(json.dumps(self.game.conversation, indent=2, ensure_ascii=False))
 
-            # 实时可视化：每完成一个 step 通知外部（例如通过 SSE 推送给浏览器）
+            # 实时可视化：每个 step 完成后通知外部(例如通过 SSE 推送给浏览器)
             if on_step is not None:
                 on_step(self.config)
 

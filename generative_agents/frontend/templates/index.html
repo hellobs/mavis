@@ -2,6 +2,18 @@
 
 {% block content %}
 <div id="game-container" style="text-align: center"></div>
+
+<!-- 对话记录面板(HTML,可滚动,说话者高亮) -->
+<div id="chat-panel" style="position: fixed; right: 16px; top: 16px; width: 340px; max-height: 65vh;
+    background: rgba(255,255,255,0.96); border: 1px solid #d8d8d8; border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15); z-index: 100; font-size: 13px;
+    display: flex; flex-direction: column; overflow: hidden;">
+    <div style="padding: 10px 14px; font-weight: bold; font-size: 14px; background: #f6f6f6;
+        border-bottom: 1px solid #e2e2e2; color: #333;">💬 对话记录</div>
+    <div id="chat-content" style="padding: 8px 14px; overflow-y: auto; max-height: calc(65vh - 42px);
+        line-height: 1.7; color: #333; flex: 1;"></div>
+</div>
+
 <div>
     <div class="row">
         <div class="col-md-12" style="border: solid; padding: 1em; padding-left:2em; padding-right:2em; border-radius: 5px;">

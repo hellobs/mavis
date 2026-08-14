@@ -33,6 +33,12 @@ from flask import Flask, render_template, Response, request
 
 from start import SimulateServer, personas, get_config, get_config_from_log
 from compress import LiveCompressor
+import modules.agent as agent_module
+
+
+def on_chat_line(speaker, text):
+    """对话逐句实时推送(每生成一句话立即发给前端,不用等整段完成)"""
+    broadcast({"type": "chat_line", "speaker": speaker, "text": text})
 
 app = Flask(
     __name__,
@@ -40,6 +46,14 @@ app = Flask(
     static_folder="frontend/static",
     static_url_path="/static",
 )
+
+
+@app.after_request
+def no_cache_html(resp):
+    """HTML 页面不缓存(模板每次渲染最新版);静态资源(瓦片/图片)正常缓存"""
+    if resp.mimetype == "text/html":
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 # ---- SSE 客户端管理 ----
 clients = list()
@@ -60,22 +74,47 @@ server = None
 compressor = None
 
 
-def on_step(config):
-    """模拟每完成一个 step 时调用：生成该 step 的帧数据并推送给浏览器"""
-    global compressor
+def conversation_text(conversation, step_time):
+    """把内存中的对话记录格式化为文本"""
+    text = ""
+    if step_time in conversation:
+        for chats in conversation[step_time]:
+            for persons, chat in chats.items():
+                text += f"\n地点：{persons.split(' @ ')[1]}\n\n"
+                for c in chat:
+                    text += f"{c[0]}：{c[1]}\n"
+    return {step_time: text}
+
+
+def on_agent(name, agent_data, step, sim_time):
+    """单个 Agent 思考完成时调用:推送该 Agent 的最新状态(前端直接驱动移动)"""
+    global compressor, server
     if compressor is None:
         return
-    frames, conversation, description = compressor.add_step(config)
-    msg = {"type": "step", "frames": frames, "conversation": conversation}
+    agent_state, _, description = compressor.add_agent(
+        name, agent_data, step, sim_time
+    )
+    # 从内存读取当前 step 的对话(文件是整步结束后才写入,并行下读文件会拿到旧数据)
+    conv_text = {}
+    if server is not None and sim_time in server.game.conversation:
+        conv_text = conversation_text(server.game.conversation, sim_time)
+    msg = {"type": "agent", **agent_state, "conversation": conv_text}
     if description:
         msg["description"] = description
     broadcast(msg)
+
+
+def on_step(config):
+    """整步完成时调用:推送模拟时间(前端更新时钟显示)"""
+    broadcast({"type": "time", "time": config["time"]})
 
 
 def run_simulation(name, sim_config, start_step, step, stride):
     """在后台线程中运行模拟"""
     global server, compressor
     try:
+        # 对话逐句回调:每生成一句话就实时推送
+        agent_module.chat_callback = on_chat_line
         checkpoints_folder = f"results/checkpoints/{name}"
         compressor = LiveCompressor(checkpoints_folder, "frontend/static")
         server = SimulateServer(
@@ -85,10 +124,10 @@ def run_simulation(name, sim_config, start_step, step, stride):
         if step <= 0:
             # step <= 0 表示持续运行，直到手动停止
             while True:
-                server.simulate(1, stride, on_step=on_step)
+                server.simulate(1, stride, on_step=on_step, on_agent=on_agent)
                 server.start_step += 1
         else:
-            server.simulate(step, stride, on_step=on_step)
+            server.simulate(step, stride, on_step=on_step, on_agent=on_agent)
         sim_state["status"] = "done"
         broadcast({"type": "done"})
     except Exception as e:
@@ -125,8 +164,8 @@ def load_initial_payload(start_datetime, stride):
 
 @app.route("/", methods=["GET"])
 def index():
-    speed = int(request.args.get("speed", 1))
-    zoom = float(request.args.get("zoom", 0.8))
+    speed = int(request.args.get("speed", 0))
+    zoom = float(request.args.get("zoom", 0))  # 0 = 前端按地图尺寸自适应
     if speed < 0:
         speed = 0
     elif speed > 5:
@@ -178,7 +217,7 @@ if __name__ == "__main__":
     parser.add_argument("--start", type=str, default="20240213-09:30", help="The starting time of the simulated ville")
     parser.add_argument("--resume", action="store_true", help="Resume running the simulation")
     parser.add_argument("--step", type=int, default=0, help="The simulate step (<=0 means run forever)")
-    parser.add_argument("--stride", type=int, default=10, help="The step stride in minute")
+    parser.add_argument("--stride", type=int, default=2, help="The step stride in minute")
     parser.add_argument("--port", type=int, default=5001, help="The server port")
     args = parser.parse_args()
 

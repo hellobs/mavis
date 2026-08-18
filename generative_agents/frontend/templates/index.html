@@ -3,6 +3,12 @@
 {% block content %}
 <div id="game-container" style="text-align: center"></div>
 
+<!-- 模拟时钟(HTML,独立于 Phaser 渲染,保证显示可靠) -->
+<div id="sim-clock" style="position: fixed; left: 16px; top: 60px; z-index: 100;
+    background: rgba(255,255,255,0.92); border: 1px solid #d8d8d8; border-radius: 8px;
+    padding: 6px 12px; font-size: 14px; font-weight: bold; color: #333;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);">🕒 <span id="sim-clock-time">--:--</span></div>
+
 <!-- 对话记录面板(HTML,可滚动,说话者高亮) -->
 <div id="chat-panel" style="position: fixed; right: 16px; top: 16px; width: 340px; max-height: 65vh;
     background: rgba(255,255,255,0.96); border: 1px solid #d8d8d8; border-radius: 10px;

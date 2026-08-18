@@ -112,6 +112,9 @@
 	// Live mode: 通过 SSE 接收模拟推送,直接驱动 agent 移动
 	if (live_mode) {
 		const es = new EventSource("/stream");
+		let sse_state = "connecting";
+		es.onopen = function() { sse_state = "connected"; console.log("[SSE] connected"); };
+		es.onerror = function() { sse_state = "error"; console.log("[SSE] error - auto reconnect"); };
 		es.onmessage = function(e) {
 			const msg = JSON.parse(e.data);
 			if (msg.type === "agent") {
@@ -137,6 +140,8 @@
 			} else if (msg.type === "error") {
 				sim_error = msg.message || "模拟出错";
 			}
+			// 诊断:显示 SSE 状态
+			window.__sse_state = sse_state;
 		};
 		es.onerror = function() {
 			// EventSource 断线后会自动重连
@@ -145,15 +150,13 @@
 
 	function setCurrentTime(t) {
 		if (!t || t.length < 12) return;
-		let y = parseInt(t.slice(0, 4));
-		let mo = parseInt(t.slice(4, 6));
-		let d = parseInt(t.slice(6, 8));
-		let h = parseInt(t.slice(9, 11));
-		let mi = parseInt(t.slice(11, 13));
-		let dt = new Date(y, mo - 1, d, h, mi);
-		if (isNaN(dt.getTime())) return;
-		target_time = dt;
-		if (!display_time) display_time = new Date(dt);
+		window.__time_count = (window.__time_count || 0) + 1;
+		// 直接截取 "20250213-12:42" 的 "12:42" 部分显示,不做任何 Date 解析(避免解析 bug)
+		let timeStr = String(t).slice(9);
+		let clockEl = document.getElementById("sim-clock-time");
+		if (clockEl) clockEl.innerHTML = timeStr;
+		display_time = timeStr;
+		target_time = timeStr;
 	}
 
 	function applySnapshot(agents, time) {
@@ -335,11 +338,10 @@
 		buttonHideConversation.setInteractive();
 		posX += buttonHideConversation.width + 10;
 
-		// Show current time (初始显示模拟开始时间,避免空白/Invalid Date)
-		currentTime = add_text(this, posX, posY, start_datetime.toLocaleTimeString("zh-CN", datetime_options), "#ccffcc");
+		// Phaser 画布内不再显示时间(改用 HTML 时钟 sim-clock)
 
 		// Show live status (直播模式状态显示)
-		textStatus = add_text(this, 20, posY + currentTime.height + 10, " —— ", "#ffffcc");
+		textStatus = add_text(this, 20, 60, " —— ", "#ffffcc");
 		textStatus.setVisible(live_mode);
 
 		// Setup camera
@@ -483,18 +485,6 @@
 		}
 
 		if (live_mode) {
-			// 时间平滑流动:显示时间以 2 倍速向模拟推送的目标时间推进,避免跳变
-			if (target_time) {
-				if (!display_time) display_time = new Date(target_time);
-				let diff = target_time.getTime() - display_time.getTime();
-				if (diff > 500) {
-					display_time = new Date(display_time.getTime() + delta * 2);
-					if (display_time.getTime() >= target_time.getTime()) {
-						display_time = new Date(target_time);
-					}
-					currentTime.setText(display_time.toLocaleTimeString("zh-CN", datetime_options));
-				}
-			}
 			if (sim_finished) {
 				textStatus.setText("✅ 模拟结束 (" + FRONTEND_VERSION + ")");
 				buttonPlay.text = "[直播结束]";
@@ -502,7 +492,8 @@
 			} else if (sim_error) {
 				textStatus.setText("⚠️ " + sim_error + " (" + FRONTEND_VERSION + ")");
 			} else {
-				textStatus.setText("🟢 直播中 · " + currentTime.text + " (" + FRONTEND_VERSION + ")");
+				let clockVal = document.getElementById("sim-clock-time") ? document.getElementById("sim-clock-time").innerHTML : "--:--";
+				textStatus.setText("🟢 " + clockVal + " (v10) [SSE:" + (window.__sse_state || "?") + "] [time#" + (window.__time_count || 0) + "]");
 			}
 		} else if (finished || paused) {
 			return;
@@ -538,7 +529,8 @@
 				execute_count = execute_count_max + 1;
 				step = step + 1;
 				start_datetime = new Date(start_datetime.getTime() + step_size);
-				currentTime.setText(start_datetime.toLocaleTimeString("zh-CN", datetime_options));
+				let rclock = document.getElementById("sim-clock-time");
+				if (rclock) rclock.innerHTML = start_datetime.toLocaleTimeString("zh-CN");
 			}
 			execute_count -= 1;
 		}

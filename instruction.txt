@@ -1,0 +1,2 @@
+cd D:\zzr\GenerativeAgentsCN\generative_agents
+C:\Users\rui\miniconda3\envs\generative_agents_cn\python.exe live.py --name invest-room --start "20250213-09:30" --stride 2 --step 0 --port 5001

@@ -109,13 +109,15 @@
 	let cursors;
 	let player;
 
-	// Live mode: 通过 SSE 接收模拟推送,直接驱动 agent 移动
+	// Live mode: 通过 WebSocket 接收模拟推送,直接驱动 agent 移动(协议见 framework/runtime/protocol.py)
 	if (live_mode) {
-		const es = new EventSource("/stream");
 		let sse_state = "connecting";
-		es.onopen = function() { sse_state = "connected"; console.log("[SSE] connected"); };
-		es.onerror = function() { sse_state = "error"; console.log("[SSE] error - auto reconnect"); };
-		es.onmessage = function(e) {
+		let ws = new WebSocket("ws://" + location.host + "/ws");
+		ws.onopen = function() { sse_state = "connected"; console.log("[WS] connected"); };
+		ws.onclose = function() { sse_state = "error"; console.log("[WS] closed - reconnect"); setTimeout(function() { location.reload(); }, 3000); };
+		ws.onerror = function() { sse_state = "error"; console.log("[WS] error"); };
+		// (WebSocket 断线由 onclose 处理:3 秒后刷新页面重连)
+		ws.onmessage = function(e) {
 			const msg = JSON.parse(e.data);
 			if (msg.type === "agent") {
 				moveAgent(msg.name, msg.coord, msg.action, msg.location, msg.currently, msg.path);
@@ -140,11 +142,8 @@
 			} else if (msg.type === "error") {
 				sim_error = msg.message || "模拟出错";
 			}
-			// 诊断:显示 SSE 状态
+			// 诊断:显示连接状态
 			window.__sse_state = sse_state;
-		};
-		es.onerror = function() {
-			// EventSource 断线后会自动重连
 		};
 	}
 

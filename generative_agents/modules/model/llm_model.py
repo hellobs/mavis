@@ -167,13 +167,33 @@ class OllamaLLMModel(LLMModel):
                             return validated.res
                         except (json.JSONDecodeError, Exception):
                             pass
-                    # If all parsing fails, return the raw text
+                    # 模型可能输出了多个 JSON 对象拼接(如 {"res": "..."}{"res": "..."}),
+                    # 尝试用 raw_decode 解析第一个完整对象;仍失败则清理 JSON 残渣后返回文本
+                    try:
+                        decoder = json.JSONDecoder()
+                        start = ret.find("{")
+                        if start >= 0:
+                            obj, _ = decoder.raw_decode(ret[start:])
+                            validated = return_type.model_validate(obj)
+                            return validated.res
+                    except Exception:
+                        pass
+                    ret = self._cleanup_json_residue(ret)
                     return ret
                 except Exception as e:
                     print(f"OllamaLLMModel: Failed to validate response: {e}")
                     return ret
             return ret
         return ""
+
+    @staticmethod
+    def _cleanup_json_residue(text: str) -> str:
+        """清理 LLM 输出中混入的 JSON 语法残渣(如 `"}{"`、孤立的引号/大括号)"""
+        # 移除对象拼接残渣: "}{" / "}{ / }{” / }{ 等
+        text = re.sub(r'"?\}\{"?', "", text)
+        # 移除行尾孤立的大括号或英文引号
+        text = re.sub(r'[{}"]+$', "", text)
+        return text.strip()
 
 
 def create_llm_model(llm_config):

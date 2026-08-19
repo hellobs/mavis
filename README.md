@@ -5,7 +5,8 @@
 ## 功能
 
 - 5 个投资场景智能体(投资顾问 / 量化分析 / 行业研究 / 风控 / 散户),由大模型驱动自主决策、移动、对话
-- 实时可视化:模拟运行时可边跑边看,支持对话逐句显示、时间与状态展示
+- 自研框架层 `framework/`:与传输无关的消息契约(protocol.py),支撑实时流与未来 Unity 客户端对接
+- 实时可视化:FastAPI + WebSocket 边跑边看,对话逐句推送、双向通道支持"人在回路"交互
 - 事后回放:模拟结果可压缩为回放数据,随时回看
 - 支持 DeepSeek API 与本地 Ollama 两种大模型后端
 
@@ -32,14 +33,17 @@ pip install -r requirements.txt
   ```
   并在 `generative_agents/data/config.json` 中切换 `think.llm` 的 provider
 
-### 2. 实时观看
+### 2. 实时观看(FastAPI + WebSocket)
 
 ```bash
 cd generative_agents
-python live.py --name sim-test --start "20250213-09:30" --stride 2 --step 0 --port 5001
+# 推荐:在隔离的 uv 环境运行(已装 fastapi/uvicorn)
+.\.venv-live\Scripts\python.exe live_fastapi.py --name sim-test --start "20250213-09:30" --stride 2 --step 0 --port 5001
 ```
 
 浏览器打开 http://127.0.0.1:5001/
+
+> 旧版 Flask+SSE 入口 `live.py` 保留源码,不再作为运行入口。
 
 ### 3. 先跑后放(回放)
 
@@ -66,19 +70,23 @@ python replay.py
 
 ```
 generative_agents/
-├── start.py        # 模拟(无头)
-├── live.py         # 实时模拟+可视化(SSE)
-├── compress.py     # 压缩回放数据
-├── replay.py       # 回放服务
-├── modules/        # 核心逻辑(agent/memory/prompt/model)
-├── frontend/       # 可视化前端(Phaser)
-├── data/           # 配置与提示词
-└── results/        # 存档与回放数据
+├── start.py            # 模拟(无头)
+├── live_fastapi.py     # 实时模拟+可视化(FastAPI + WebSocket,推荐入口)
+├── live.py             # 旧版实时服务(Flask + SSE,源码保留,不再作为运行入口)
+├── compress.py         # 压缩回放数据
+├── replay.py           # 回放服务
+├── framework/          # 自研框架层(协议/核心/场景/运行时/输出,零前端依赖)
+├── scenarios/          # 业务场景配置(investment: 人物关系/剧情事件)
+├── modules/            # 核心逻辑(agent/memory/prompt/model)
+├── frontend/           # 可视化前端(Phaser)
+├── data/               # 配置与提示词
+└── results/            # 存档与回放数据
 ```
 
 ## 说明
 
 - 角色与场景配置见 `docs/角色设定采集模板.md`(给业务方填写)
+- 实时可视化走 WebSocket(`/ws`),推送框架契约消息(agent/time/chat_line/snapshot);浏览器断线 3s 后自动重连
 - 换用英文界面/提示词:改 `modules/prompt/scratch.py` 与前端文案即可,逻辑无需改动
 
 

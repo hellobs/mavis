@@ -29,7 +29,7 @@
                     <a href="javascript:void(0);" id="on_screen_det_trigger-{{ p }}">
                         <div style="padding: 0;">
                             {% set image_static = 'assets/village/agents/' ~ p ~ '/portrait.png' %}
-                            <img src="{{ url_for('static', filename=image_static) }}" style="width: 32px; padding: 0;">
+                            <img src="static/{{ image_static }}" style="width: 32px; padding: 0;">
                             <br>
                             {{ p }}
                         </div>
@@ -48,7 +48,7 @@
         <div class="media" id="on_screen_det_content-{{ p }}" style="background-color:#EEEEEE; padding:0em; padding-left:2em; padding-right:2em; border-radius:5px; display: none;">
             <div class="media-left media-middle">
                 {% set image_static = 'assets/village/agents/' ~ p ~ '/portrait.png' %}
-                <img src="{{ url_for('static', filename=image_static) }}" style="width:3em">
+                <img src="static/{{ image_static }}" style="width:3em">
                 <div style="display: none;" id="temp_focus"></div>
             </div>
             <div class="media-body" style='padding-left:3em; padding-top:1em; padding-bottom:0em'>

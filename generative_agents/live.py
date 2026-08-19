@@ -35,10 +35,14 @@ from start import SimulateServer, personas, get_config, get_config_from_log
 from compress import LiveCompressor
 import modules.agent as agent_module
 
+# 框架契约:前端(Phaser/Unity)统一消费 protocol 定义的消息结构
+from framework.runtime.protocol import AgentState, TimeMsg, ChatLineMsg, validate_message
+
 
 def on_chat_line(speaker, text):
     """对话逐句实时推送(每生成一句话立即发给前端,不用等整段完成)"""
-    broadcast({"type": "chat_line", "speaker": speaker, "text": text})
+    msg: ChatLineMsg = {"type": "chat_line", "speaker": speaker, "text": text}
+    broadcast(msg)
 
 app = Flask(
     __name__,
@@ -61,7 +65,9 @@ clients_lock = threading.Lock()
 
 
 def broadcast(data):
-    """向所有已连接的 SSE 客户端推送一条消息"""
+    """向所有已连接的 SSE 客户端推送一条消息(框架契约校验)"""
+    if not validate_message(data):
+        print(f"[protocol] 非契约消息: type={data.get('type')}", flush=True)
     payload = json.dumps(data, ensure_ascii=False)
     with clients_lock:
         for q in clients:
@@ -98,7 +104,17 @@ def on_agent(name, agent_data, step, sim_time):
     conv_text = {}
     if server is not None and sim_time in server.game.conversation:
         conv_text = conversation_text(server.game.conversation, sim_time)
-    msg = {"type": "agent", **agent_state, "conversation": conv_text}
+    # 按框架契约(protocol.AgentState)构造消息:坐标/路径/动作/地点/当前状态/对话
+    msg: AgentState = {
+        "type": "agent",
+        "name": agent_state["name"],
+        "coord": agent_state["coord"],
+        "path": agent_state["path"],
+        "action": agent_state["action"],
+        "location": agent_state["location"],
+        "currently": agent_data.get("currently", ""),
+        "conversation": conv_text,
+    }
     if description:
         msg["description"] = description
     broadcast(msg)
@@ -106,7 +122,8 @@ def on_agent(name, agent_data, step, sim_time):
 
 def on_step(config):
     """整步完成时调用:推送模拟时间(前端更新时钟显示)"""
-    broadcast({"type": "time", "time": config["time"]})
+    msg: TimeMsg = {"type": "time", "time": config["time"]}
+    broadcast(msg)
 
 
 def run_simulation(name, sim_config, start_step, step, stride):

@@ -236,9 +236,7 @@
 		// Load tilemap JSON
 		this.load.tilemapTiledJSON("map", "static/assets/village/tilemap/tilemap.json");
 
-		this.load.atlas("atlas", "static/assets/village/agents/伊莎贝拉/texture.png", filename="static/assets/village/agents/sprite.json");
-
-		// Load persona atlases
+		// Load persona atlases(玩家/相机跟随用第一个角色的贴图)
 		for (var p in persona_names) {
 			image_static = "static/assets/village/agents/" + p + "/texture.png";
 			this.load.atlas(p, image_static, filename="static/assets/village/agents/sprite.json");
@@ -343,8 +341,9 @@
 		textStatus = add_text(this, 20, 60, " —— ", "#ffffcc");
 		textStatus.setVisible(live_mode);
 
-		// Setup camera
-		player = this.physics.add.sprite(13 * tile_width, 11 * tile_width, "atlas", "down").setSize(30, 40).setOffset(0, 0);
+		// Setup camera(玩家跟随角色用第一个角色的贴图,纹理 key = 角色名)
+		let player_texture = Object.keys(persona_names)[0] || "atlas";
+		player = this.physics.add.sprite(13 * tile_width, 11 * tile_width, player_texture, "down").setSize(30, 40).setOffset(0, 0);
 		player.setDepth(-1);
 		const camera = this.cameras.main;
 		camera.startFollow(player);
@@ -584,7 +583,9 @@
 				// 走路动画(按移动方向)
 				let dir = Math.abs(dx) > Math.abs(dy) ? (vx > 0 ? "r" : "l") : (vy > 0 ? "d" : "u");
 				pre_anims_direction_dict[curr_persona_name] = dir;
-				curr_persona.anims.play(curr_persona_name + "-" + dir + "-walk", true);
+				// 动画 key 用完整单词(down/up/left/right),与 create 阶段一致
+				let dir_word = dir == "d" ? "down" : dir == "u" ? "up" : dir == "l" ? "left" : "right";
+				curr_persona.anims.play(curr_persona_name + "-" + dir_word + "-walk", true);
 			}
 		}
 

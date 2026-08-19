@@ -5,8 +5,10 @@
 ## 功能
 
 - 5 个投资场景智能体(投资顾问 / 量化分析 / 行业研究 / 风控 / 散户),由大模型驱动自主决策、移动、对话
-- 自研框架层 `framework/`:与传输无关的消息契约(protocol.py),支撑实时流与未来 Unity 客户端对接
-- 实时可视化:FastAPI + WebSocket 边跑边看,对话逐句推送、双向通道支持"人在回路"交互
+- **自研框架内核 `framework/`**:Agent 完整生命周期(思考/日程/感知/反应/对话/反思)、三因子记忆检索、可插拔存储(纯 stdlib / 向量)、提示词系统,全部零 `modules` 依赖,可独立运行
+- 与传输无关的消息契约(protocol.py),支撑实时流与未来 Unity 客户端对接
+- 实时可视化:FastAPI + WebSocket 边跑边看(框架驱动),对话逐句推送、双向通道支持"人在回路"交互
+- 决策导出:模拟过程自动生成 decisions.json(时间/角色/动作/涉他/重要性),供决策平台与专家界面
 - 事后回放:模拟结果可压缩为回放数据,随时回看
 - 支持 DeepSeek API 与本地 Ollama 两种大模型后端
 
@@ -70,14 +72,19 @@ python replay.py
 
 ```
 generative_agents/
-├── start.py            # 模拟(无头)
-├── live_fastapi.py     # 实时模拟+可视化(FastAPI + WebSocket,推荐入口)
+├── start.py            # 模拟(无头,modules 驱动)
+├── live_fastapi.py     # 实时模拟+可视化(FastAPI + WebSocket,框架驱动,推荐入口)
 ├── live.py             # 旧版实时服务(Flask + SSE,源码保留,不再作为运行入口)
 ├── compress.py         # 压缩回放数据
 ├── replay.py           # 回放服务
-├── framework/          # 自研框架层(协议/核心/场景/运行时/输出,零前端依赖)
+├── framework/          # ★ 自研框架内核(零 modules/前端依赖,可独立运行)
+│   ├── core/           #   Agent 生命周期/记忆/日程/空间/事件/时钟/提示词
+│   ├── scene/          #   空间/碰撞/寻路
+│   ├── runtime/        #   协议(protocol.py)/LLM 适配/游戏容器/并行调度
+│   ├── output/         #   决策导出(decisions.json)
+│   └── config/         #   场景配置加载
 ├── scenarios/          # 业务场景配置(investment: 人物关系/剧情事件)
-├── modules/            # 核心逻辑(agent/memory/prompt/model)
+├── modules/            # 旧业务实现(agent/memory/prompt/model,框架已接管,保留兼容)
 ├── frontend/           # 可视化前端(Phaser)
 ├── data/               # 配置与提示词
 └── results/            # 存档与回放数据
@@ -87,7 +94,12 @@ generative_agents/
 
 - 角色与场景配置见 `docs/角色设定采集模板.md`(给业务方填写)
 - 实时可视化走 WebSocket(`/ws`),推送框架契约消息(agent/time/chat_line/snapshot);浏览器断线 3s 后自动重连
-- 换用英文界面/提示词:改 `modules/prompt/scratch.py` 与前端文案即可,逻辑无需改动
+- 实时服务由 `framework/` 驱动(Game + Simulator),不依赖 `modules/`;`modules/` 保留供旧入口(start.py/live.py)使用
+- 记忆存储默认纯 stdlib(`SimpleStore`,零第三方依赖);要向量检索把 `agent_base.associate.embedding.provider` 改为 `ollama` 等即可(LlamaIndexStore)
+- 决策导出:模拟每步自动写 `results/decisions_<name>.json`(需在 Simulator 开启 `export_decisions`),该产物已加入 .gitignore 不入库
+- 换用英文界面/提示词:改 `framework/prompt/scratch.py` 与前端文案即可,逻辑无需改动
+- 前端 Phaser 脚本:服务端优先用 `frontend/static/vendor/phaser.min.js`(本地化,断网可用),不存在时回退 CDN;离线环境下建议下载 phaser.min.js 放入该目录
+- 前端已修复:移除旧角色贴图引用(伊莎贝拉)、动画 key 与播放方向对齐、玩家贴图改为当前角色
 
 
 ## 修改地图

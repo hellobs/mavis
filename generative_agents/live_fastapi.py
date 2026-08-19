@@ -20,9 +20,8 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
-from start import SimulateServer, personas, get_config, get_config_from_log
+from start import personas, get_config, get_config_from_log
 from compress import LiveCompressor
-import modules.agent as agent_module
 
 from framework.runtime.protocol import AgentState, TimeMsg, ChatLineMsg, validate_message
 
@@ -122,25 +121,71 @@ def on_chat_line(speaker, text):
 
 
 def run_simulation(name, sim_config, start_step, step, stride):
-    """后台线程运行模拟"""
+    """后台线程运行模拟(框架驱动:framework Game + Simulator,不依赖 modules)"""
     global server, compressor
     try:
-        agent_module.chat_callback = on_chat_line
+        import framework.core.agent_core as fw_agent
+        from framework.core.timer import Timer
+        from framework.runtime.game import Game
+        from framework.runtime.simulator import Simulator
+
+        fw_agent.chat_callback = on_chat_line
         checkpoints_folder = f"results/checkpoints/{name}"
+
+        # 用存档里的时间建时钟(存档 time 已是下一步时间)
+        timer = Timer(start=sim_config["time"]["start"])
+        conversation = {}
+        conv_path = os.path.join(checkpoints_folder, "conversation.json")
+        if os.path.exists(conv_path):
+            with open(conv_path, "r", encoding="utf-8") as f:
+                conversation = json.load(f)
+
         compressor = LiveCompressor(checkpoints_folder, "frontend/static")
-        server = SimulateServer(
-            name, "frontend/static", checkpoints_folder, sim_config, start_step, "info"
+        # 框架存储:默认用纯 stdlib 的 SimpleStore(零 llama_index 依赖,任何环境可跑)
+        for agent_name, acfg in sim_config.get("agents", {}).items():
+            base = sim_config.get("agent_base", {})
+            assoc = dict(base.get("associate", {}))
+            assoc["embedding"] = {"provider": "simple"}
+            if "agent_base" not in sim_config:
+                sim_config["agent_base"] = {}
+            sim_config["agent_base"]["associate"] = assoc
+        game = Game(name, "frontend/static", sim_config, conversation, timer=timer)
+        game.reset_game()
+
+        # 薄封装,让 on_agent 能读到 server.game.conversation
+        class _Server:
+            pass
+
+        server = _Server()
+        server.game = game
+
+        simulator = Simulator(
+            max_workers=max(1, len(game.agents)),
+            export_decisions=False,
         )
         sim_state["status"] = "running"
         if step <= 0:
             while True:
-                server.simulate(1, stride, on_step=on_step, on_agent=on_agent)
-                server.start_step += 1
+                simulator.simulate(
+                    game, sim_config, 1, stride,
+                    start_step=start_step,
+                    checkpoints_folder=checkpoints_folder,
+                    on_step=on_step, on_agent=on_agent,
+                )
+                start_step += 1
         else:
-            server.simulate(step, stride, on_step=on_step, on_agent=on_agent)
+            simulator.simulate(
+                game, sim_config, step, stride,
+                start_step=start_step,
+                checkpoints_folder=checkpoints_folder,
+                on_step=on_step, on_agent=on_agent,
+            )
         sim_state["status"] = "done"
         manager.broadcast({"type": "done"})
     except Exception as e:
+        import traceback
+
+        traceback.print_exc()
         sim_state["status"] = "error"
         sim_state["error"] = str(e)
         manager.broadcast({"type": "error", "message": str(e)})
@@ -180,6 +225,12 @@ async def index(request: Request):
         speed = 5
     play_speed = 2 ** speed
     payload = load_initial_payload(sim_state["start_time"], sim_state["stride"])
+    # Phaser 脚本:本地 vendor 优先(断网可用),否则回退 CDN
+    local_phaser = os.path.join(BASE_DIR, "frontend/static/vendor/phaser.min.js")
+    if os.path.exists(local_phaser):
+        phaser_src = "static/vendor/phaser.min.js"
+    else:
+        phaser_src = "https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.js"
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -189,6 +240,7 @@ async def index(request: Request):
             "play_speed": play_speed,
             "zoom": zoom,
             "live_mode": True,
+            "phaser_src": phaser_src,
             **payload,
         },
     )

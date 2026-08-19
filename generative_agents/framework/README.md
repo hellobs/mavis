@@ -13,15 +13,23 @@ Agent 在空间里生活、记忆、反思、决策、交互,每一步可配置�
 framework/
 ├── core/                 # 纯逻辑层(零渲染/通信依赖)
 │   ├── event.py          # 事件模型(世界最小原子)
+│   ├── action.py         # 行动(Action,时间注入)
+│   ├── spatial.py        # 空间记忆(地址树)
+│   ├── schedule.py       # 日程(时间注入)
+│   ├── timer.py          # 模拟时钟(可注入,零全局状态)
 │   ├── memory.py         # 联想记忆 + 三因子检索(近因0.995/重要/相关)
-│   └── agent_core.py     # Agent 生命周期(组件注入式:LLM/记忆/空间/提示词可插拔)
+│   ├── store.py          # 记忆存储抽象(SimpleStore 纯 stdlib / LlamaIndexStore 向量)
+│   ├── associate.py      # 联想记忆(事件/对话/想法 + 检索)
+│   ├── agent_core.py     # Agent 完整生命周期(组件注入式:LLM/记忆/空间/提示词/时钟)
+│   └── prompts/          # 提示词系统(Scratch,26 个 prompt_xxx 方法)
 ├── scene/
 │   └── maze.py           # 空间/碰撞/寻路/地址索引(纯标准库)
 ├── runtime/
 │   ├── protocol.py       # ★ 消息协议(前端/Unity/决策平台统一消费的契约)
 │   ├── llm.py            # LLM 适配接口(可插拔:Ollama/OpenAI)
 │   ├── llm_providers.py  # Provider 实现(包装现有 modules/model)
-│   └── simulator.py      # 并行调度 + 回调钩子(与前端解耦)
+│   ├── game.py           # 游戏容器(创建 agents + maze + conversation)
+│   └── simulator.py      # 并行调度 + 回调 + 存档 + 决策导出(与前端解耦)
 ├── output/
 │   └── decisions.py      # 决策事件导出(供决策平台/专家界面)
 └── config/
@@ -59,11 +67,13 @@ frontend/unity      前端壳(将来,WebSocket 消费同一协议)
 ### A. 现有项目(modules/ 业务实现)——保持现状
 `start.py` / `live.py` / `replay.py` 继续用 `modules/`,框架层提供契约与抽象,不打断。
 
-### B. 新场景 / 新前端——用框架
+### B. 新场景 / 新前端——用框架 ✅ 已落地
 1. 建 `scenarios/<业务>/`(agents/scene/relationships/story)
 2. `ScenarioConfig` 加载 → `Maze` + Agent 组件
 3. `Simulator` 驱动 → 产出 `protocol` 消息
 4. 前端(Phaser/Unity)按协议消费
+
+**当前实现**:`live_fastapi.py` 即 B 路线——框架 `Game` + `Simulator` 驱动完整模拟(并行思考/存档/决策导出/WebSocket 推送),不 import `modules`。投资场景 5 角色从零跑通验证。
 
 ## Unity 迁移(框架视角)
 
@@ -79,4 +89,6 @@ frontend/unity      前端壳(将来,WebSocket 消费同一协议)
 ## 状态
 
 - ✅ 已完成:protocol / core(event,memory,agent_core) / scene(maze) / runtime(llm,simulator) / output(decisions) / config(loader) / scenarios(investment 示例)
-- ⏳ 后续:业务层配置生效(关系注入/剧情注入)、决策导出接入、FastAPI+WebSocket+Unity
+- ✅ 框架独立运行:Agent 完整生命周期(思考/日程/感知/反应/对话/反思)、记忆存储(SimpleStore 纯 stdlib / LlamaIndexStore 向量可选)、提示词系统全部迁入 framework,不依赖 modules
+- ✅ 实时服务:live_fastapi.py 由框架 Game + Simulator 驱动(FastAPI + WebSocket),决策导出(decisions.json)接入管线
+- ⏳ 后续:业务层配置生效(关系注入/剧情注入)、Unity 前端

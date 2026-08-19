@@ -1,4 +1,4 @@
-.DS_Store
+﻿.DS_Store
 ._*
 
 # Byte-compiled / optimized / DLL files
@@ -172,3 +172,6 @@ _tmp_test/
 
 # 新生成的模拟回放数据（内置的 example 已追踪，不受影响）
 results/compressed/
+
+# 决策导出产物(由 checkpoints 生成,不入库)
+decisions_*.json

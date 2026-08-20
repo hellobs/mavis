@@ -1,0 +1,12 @@
+# MAVIS 框架运行依赖(Python 3.12)
+# 核心:Agent 生命周期 / 记忆 / 配置校验
+pydantic>=2.0
+requests>=2.31
+
+# 实时服务(FastAPI + WebSocket)
+fastapi>=0.110
+uvicorn>=0.29
+websockets>=12.0
+
+# 可选:向量记忆检索(默认 SimpleStore 纯 stdlib 不需要;要用向量才装)
+# llama-index>=0.10

@@ -16,7 +16,7 @@ def load_json(path: str) -> dict:
 class ScenarioConfig:
     """一个业务场景的完整配置(加载自 scenarios/<name>/)"""
 
-    def __init__(self, scenario_dir: str):
+    def __init__(self, scenario_dir: str, validate: bool = False):
         self.dir = scenario_dir
         self.agents_dir = os.path.join(scenario_dir, "agents")
         self.scene_dir = os.path.join(scenario_dir, "scene")
@@ -26,6 +26,19 @@ class ScenarioConfig:
         self.story: List[dict] = []                # story.json(可为空)
         self.roles: Dict[str, str] = {}            # 角色名 -> 职位(决策导出用)
         self._load()
+        if validate:
+            self._run_validation()
+
+    def _run_validation(self):
+        from framework.config.validator import validate_all
+
+        errors = validate_all(
+            self.agents, self.relationships, self.story, self.maze
+        )
+        if errors:
+            raise ValueError(
+                "场景配置校验未通过:\n  " + "\n  ".join(errors)
+            )
 
     def _load(self):
         # 1) 角色

@@ -16,31 +16,60 @@
 
 ### 1. 环境准备
 
+**方式 A:全新环境(推荐,不污染现有 Python)**
+
+需要 [uv](https://docs.astral.sh/uv/) 或 [conda](https://docs.conda.io/):
+
 ```bash
+# 用 uv(更快)
+cd generative_agents
+uv venv .venv --python 3.12
+uv pip install -r requirements.txt
+
+# 或使用 conda
 conda create -n generative_agents_cn python=3.12
 conda activate generative_agents_cn
 pip install -r requirements.txt
 ```
 
-大模型二选一:
+**方式 B:已有 Python 环境**
 
-- **本地 Ollama**:安装 [Ollama](https://ollama.com/) 并拉取模型
+只要 Python ≥ 3.10,直接装依赖:
+
+```bash
+cd generative_agents
+pip install -r requirements.txt
+```
+
+> 运行时用 `python live_fastapi.py` 即可(有 conda 环境先 `conda activate`;有 uv 环境用 `.venv/Scripts/python.exe`)。
+
+### 2. 配置大模型(二选一)
+
+- **本地 Ollama**(免费,推荐开发调试):安装 [Ollama](https://ollama.com/) 并拉取模型
   ```bash
   ollama pull qwen3:4b-instruct-2507-q4_K_M
   ollama pull qwen3-embedding:0.6b-q8_0
   ```
+  无需改配置(默认就是 Ollama)。
 - **DeepSeek API**:在 `generative_agents/.env` 中配置
   ```
   LLM_API_KEY=你的key
   ```
-  并在 `generative_agents/data/config.json` 中切换 `think.llm` 的 provider
+  并编辑 `generative_agents/data/config.json` 的 `agent.think.llm`:
+  ```json
+  "llm": {
+    "provider": "openai",
+    "model": "deepseek-chat",
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": ""
+  }
+  ```
 
-### 2. 实时观看(FastAPI + WebSocket)
+### 3. 实时观看(FastAPI + WebSocket)
 
 ```bash
 cd generative_agents
-# 推荐:在隔离的 uv 环境运行(已装 fastapi/uvicorn)
-.\.venv-live\Scripts\python.exe live_fastapi.py --name sim-test --start "20250213-09:30" --stride 2 --step 0 --port 5001
+python live_fastapi.py --name sim-test --start "20250213-09:30" --stride 2 --step 0 --port 5001
 ```
 
 浏览器打开 http://127.0.0.1:5001/
@@ -84,6 +113,7 @@ generative_agents/
 - 决策导出:模拟每步自动写 `results/decisions_<name>.json`(需在 Simulator 开启 `export_decisions`),该产物已加入 .gitignore 不入库
 - 换用英文界面/提示词:改 `framework/prompt/scratch.py` 与前端文案即可,逻辑无需改动
 - 前端 Phaser 脚本:服务端优先用 `frontend/static/vendor/phaser.min.js`(本地化,断网可用),不存在时回退 CDN;离线环境下建议下载 phaser.min.js 放入该目录
+  - **首次运行前**(可选但推荐):在浏览器打开 `https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js`(约 1.3MB),右键另存为 `frontend/static/vendor/phaser.min.js`。之后无需外网即可显示画面
 - 前端已修复:移除旧角色贴图引用(伊莎贝拉)、动画 key 与播放方向对齐、玩家贴图改为当前角色
 
 

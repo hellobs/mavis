@@ -41,10 +41,51 @@ class Simulator:
         self.stride = stride
 
     # ------------------------------------------------------------------
-    def _inject_story(self, game, config):
-        """剧情调度:检查 story 事件是否到触发时间,命中则向目标角色注入
+    # 条件触发检查器注册表:condition.type -> 检查函数(game, ev) -> bool
+    # 注册新条件 = 在此添加一个函数,不动主逻辑
+    CONDITION_CHECKERS = {}
 
-        触发规则:事件 time("HH:MM") 与当前模拟时间(当前步开始前)的 HH:MM 匹配。
+    @classmethod
+    def register_condition(cls, cond_type):
+        """装饰器:注册一个条件触发检查器
+        用法:
+            @Simulator.register_condition("poignancy")
+            def check_poignancy(game, ev): ...
+        """
+
+        def deco(fn):
+            cls.CONDITION_CHECKERS[cond_type] = fn
+            return fn
+
+        return deco
+
+    def _trigger_fired(self, ev, game) -> bool:
+        """判断 story 事件是否满足触发条件
+        - 有 condition 字段:交给对应检查器(注册表)
+        - 无 condition:按 time(HH:MM) 匹配
+        """
+        condition = ev.get("condition")
+        if condition:
+            cond_type = condition.get("type")
+            checker = self.CONDITION_CHECKERS.get(cond_type)
+            if checker is None:
+                game.logger.warning(
+                    "未知条件类型 '{}' for story {},按时间触发兜底".format(cond_type, ev.get("id"))
+                )
+                return ev.get("time") == game._timer.get_date("%H:%M")
+            try:
+                return bool(checker(game, ev))
+            except Exception as e:
+                game.logger.warning("condition check failed: {}".format(e))
+                return False
+        return ev.get("time") == game._timer.get_date("%H:%M")
+
+    def _inject_story(self, game, config):
+        """剧情调度:检查 story 事件触发条件,命中则向目标角色注入
+
+        触发规则:
+        - 无 condition:事件 time("HH:MM") 与当前模拟时间匹配
+        - 有 condition:由注册的检查器判定(见 CONDITION_CHECKERS)
         每个事件只触发一次(用已触发 id 集合去重)。
         """
         if not self.story:
@@ -55,7 +96,7 @@ class Simulator:
         for ev in self.story:
             if ev.get("id") in self._story_fired:
                 continue
-            if ev.get("time") != now_hm:
+            if not self._trigger_fired(ev, game):
                 continue
             self._story_fired.add(ev.get("id"))
             targets = ev.get("targets", []) or ["all"]
@@ -187,6 +228,37 @@ class Simulator:
     def emit_chat_line(self, speaker: str, text: str):
         if self.on_chat_line:
             self.on_chat_line(speaker, text)
+
+
+# ---------------------------------------------------------------------------
+# 内置条件触发检查器(示例)
+# ---------------------------------------------------------------------------
+
+@Simulator.register_condition("poignancy")
+def _cond_poignancy(game, ev):
+    """condition: {"type":"poignancy","role":"老周","min":100}
+    当指定角色 status.poignancy 累计 >= min 时触发。
+    """
+    role = ev.get("condition", {}).get("role", "")
+    min_val = int(ev.get("condition", {}).get("min", 100))
+    agent = game.agents.get(role)
+    if agent is None:
+        return False
+    return agent.status.get("poignancy", 0) >= min_val
+
+
+@Simulator.register_condition("at_location")
+def _cond_at_location(game, ev):
+    """condition: {"type":"at_location","role":"老周","address":"会议室"}
+    当指定角色位于含该地址的格子时触发。
+    """
+    role = ev.get("condition", {}).get("role", "")
+    keyword = ev.get("condition", {}).get("address", "")
+    agent = game.agents.get(role)
+    if agent is None or not keyword:
+        return False
+    addr = agent.get_tile().get_address(as_list=False)
+    return keyword in addr
 
 
 def split_line(title: str, fill: str = "=") -> str:

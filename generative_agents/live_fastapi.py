@@ -205,14 +205,31 @@ def run_simulation(name, sim_config, start_step, step, stride):
         manager.broadcast({"type": "error", "message": str(e)})
 
 
+def _discover_agent_names():
+    """动态发现 agents 目录下的所有角色名(不写死,支持任意角色数)"""
+    agents_root = os.path.join(BASE_DIR, "frontend/static/assets/village/agents")
+    if os.path.isdir(agents_root):
+        names = [
+            n for n in sorted(os.listdir(agents_root))
+            if os.path.exists(os.path.join(agents_root, n, "agent.json"))
+        ]
+        if names:
+            return names
+    return personas
+
+
 def load_initial_payload(start_datetime, stride):
     from datetime import datetime
     persona_init_pos = {}
     description = {}
-    for name in personas:
+    # 动态发现所有角色:遍历 agents 目录(不写死 personas,支持任意角色数)
+    names = _discover_agent_names()
+    for name in names:
         json_path = os.path.join(
-            "frontend/static", f"assets/village/agents/{name}/agent.json"
+            BASE_DIR, "frontend/static", f"assets/village/agents/{name}/agent.json"
         )
+        if not os.path.exists(json_path):
+            continue
         with open(json_path, "r", encoding="utf-8") as f:
             json_data = json.load(f)
         persona_init_pos[name] = json_data["coord"]
@@ -249,7 +266,7 @@ async def index(request: Request):
         request,
         "index.html",
         {
-            "persona_names": personas,
+            "persona_names": list(payload["persona_init_pos"].keys()),
             "step": 1,
             "play_speed": play_speed,
             "zoom": zoom,
@@ -310,7 +327,7 @@ if __name__ == "__main__":
             exit(0)
         start_step = sim_config["step"]
     else:
-        sim_config = load_config(args.start, args.stride, personas)
+        sim_config = load_config(args.start, args.stride, _discover_agent_names())
         start_step = 0
 
     sim_state["start_time"] = sim_config["time"]["start"]

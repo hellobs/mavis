@@ -43,12 +43,27 @@ class _BaseProvider:
         self._summary = {"total": [0, 0, 0]}
         # 并发上限:配置优先(如 llm.concurrency),默认 4
         self._concurrency = int(config.get("concurrency", 4) or 4)
+        # 结果缓存:确定性调用白名单(LRU,进程级)
+        self._cache_enabled = bool(config.get("cache", True))
+        self._cache = {}
+        self._cache_order = []
+        self._cache_max = int(config.get("cache_max", 2000))
+        self._cache_hits = 0
 
     # ---------------- 对外接口 ----------------
     def completion(
         self, prompt, retry=10, callback=None, failsafe=None,
         return_type=None, caller="llm_normal", **kwargs
     ):
+        # 缓存命中:仅确定性调用(见 _CACHEABLE_CALLERS)
+        cache_key = None
+        if self._cache_enabled and caller in self._CACHEABLE_CALLERS:
+            cache_key = (caller, prompt, return_type.__name__ if return_type else "")
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                self._cache_hits += 1
+                return cached
+
         response = None
         self._summary.setdefault(caller, [0, 0, 0])
         sem = self._semaphore(self._concurrency)
@@ -77,7 +92,32 @@ class _BaseProvider:
         pos = 2 if response is None else 1
         self._summary["total"][pos] += 1
         self._summary[caller][pos] += 1
-        return response if response is not None else failsafe
+        result = response if response is not None else failsafe
+
+        if cache_key is not None and result is not None:
+            self._cache[cache_key] = result
+            self._cache_order.append(cache_key)
+            if len(self._cache_order) > self._cache_max:
+                old = self._cache_order.pop(0)
+                self._cache.pop(old, None)
+        return result
+
+    # 确定性调用白名单:同一 prompt 结果应一致的调用才缓存
+    # (poignancy 打分 / 复读检查 / 关系摘要短时稳定)
+    _CACHEABLE_CALLERS = {
+        "poignancy_event",
+        "poignancy_chat",
+        "generate_chat_check_repeat",
+    }
+
+    def cache_stats(self) -> dict:
+        total_calls = self._summary["total"][0] + self._cache_hits
+        return {
+            "hits": self._cache_hits,
+            "misses": self._summary["total"][0],
+            "hit_rate": round(self._cache_hits / total_calls, 3) if total_calls else 0,
+            "cache_size": len(self._cache),
+        }
 
     def is_available(self):
         return self._enabled
@@ -126,16 +166,18 @@ class _BaseProvider:
                 parsed = json.loads(ret)
                 return return_type.model_validate(parsed).res
             except json.JSONDecodeError:
-                # 拼接 JSON({...}{...})或文本中夹 JSON:raw_decode 提取首个对象
-                try:
-                    decoder = json.JSONDecoder()
-                    start = ret.find("{")
-                    if start >= 0:
-                        obj, _ = decoder.raw_decode(ret[start:])
+                # 尝试:整体是合法 JSON 对象拼接({...}{...})→ 提取第一个完整对象
+                # 注意:LLM 可能输出 "文本"}{"res":...}(文本开头+残渣),
+                # 此时第一个对象不是 JSON,raw_decode 会从尾巴的 { 开始,丢掉真实文本。
+                # 因此仅当 ret 以 { 开头(确实是对象开头)时才走 raw_decode。
+                if ret.lstrip().startswith("{"):
+                    try:
+                        decoder = json.JSONDecoder()
+                        obj, _ = decoder.raw_decode(ret.lstrip())
                         return return_type.model_validate(obj).res
-                except Exception:
-                    pass
-                # 仍失败:清理残渣后返回文本
+                    except Exception:
+                        pass
+                # 仍失败:清理 JSON 残渣后返回完整文本(优先保住真实内容)
                 return self._cleanup_json_residue(ret)
             except Exception as e:
                 from framework.runtime.logger import get_logger
@@ -149,9 +191,21 @@ class _BaseProvider:
 
     @staticmethod
     def _cleanup_json_residue(text: str) -> str:
-        """清理 LLM 输出中混入的 JSON 语法残渣(如 `"}{"`、孤立的引号/大括号)"""
+        """清理 LLM 输出中混入的 JSON 语法残渣
+
+        目标形态:真实文本在前,后跟 JSON 残渣(如 `"}{"res": "..."}`)。
+        只清理"残渣段",不破坏文本本身:
+        - 先尝试用 raw_decode 定位第一个合法 JSON 对象并删除它(处理 {...}{...})
+        - 再删除行尾孤立的引号/大括号(处理 "文本"}{ 等)
+        """
+        # 1) 若文本内含完整 JSON 对象(如 {"res": ...} 尾巴),删除第一个对象
+        m = re.search(r'\{[^{}]*"res"\s*:\s*"[^"]*"\s*\}', text)
+        if m:
+            text = text[: m.start()] + text[m.end():]
+        # 2) 删除对象拼接残渣 "}{ / "}{" / }{
         text = re.sub(r'"?\}\{"?', "", text)
-        text = re.sub(r'[{}"]+$', "", text)
+        # 3) 删除行尾孤立的引号或大括号(仅当它们是"多出来的尾巴")
+        text = re.sub(r'["{}]+$', "", text)
         return text.strip()
 
 

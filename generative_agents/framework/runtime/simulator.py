@@ -7,7 +7,7 @@ checkpoint 存档、conversation 存档、决策导出(decisions)在此统一接
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from framework.core.timer import Timer
 
@@ -25,6 +25,7 @@ class Simulator:
         export_decisions: bool = False,           # 每步结束后导出决策流(experts 平台)
         decisions_path: str = "",
         roles: Optional[Dict[str, str]] = None,   # 角色名 -> 职位(决策导出用)
+        story: Optional[List[dict]] = None,       # 剧情事件( story.json 注入)
         stride: int = 2,
     ):
         self.on_agent = on_agent
@@ -36,9 +37,36 @@ class Simulator:
         self.export_decisions = export_decisions
         self.decisions_path = decisions_path
         self.roles = roles or {}
+        self.story = story or []
         self.stride = stride
 
     # ------------------------------------------------------------------
+    def _inject_story(self, game, config):
+        """剧情调度:检查 story 事件是否到触发时间,命中则向目标角色注入
+
+        触发规则:事件 time("HH:MM") 与当前模拟时间(当前步开始前)的 HH:MM 匹配。
+        每个事件只触发一次(用已触发 id 集合去重)。
+        """
+        if not self.story:
+            return
+        if not hasattr(self, "_story_fired"):
+            self._story_fired = set()
+        now_hm = game._timer.get_date("%H:%M")
+        for ev in self.story:
+            if ev.get("id") in self._story_fired:
+                continue
+            if ev.get("time") != now_hm:
+                continue
+            self._story_fired.add(ev.get("id"))
+            targets = ev.get("targets", []) or ["all"]
+            for name, agent in game.agents.items():
+                if "all" not in targets and name not in targets:
+                    continue
+                agent.inject_story_event(ev)
+            game.logger.info(
+                "STORY {} @ {}: {}".format(ev.get("id"), now_hm, ev.get("content", "")[:50])
+            )
+
     def simulate(self, game, config, step, stride=0, start_step=0, checkpoints_folder="", on_step=None, on_agent=None):
         """连续模拟多步(等价 SimulateServer.simulate)
 
@@ -56,6 +84,9 @@ class Simulator:
             title = "Simulate Step[{}/{}, time: {}]".format(i + 1, start_step + step, timer.get_date())
             game.logger.info("\n" + split_line(title, "="))
             sim_time = timer.get_date("%Y%m%d-%H:%M")
+
+            # 剧情调度:到点的 story 事件注入目标角色记忆
+            self._inject_story(game, config)
 
             # 并行思考所有 Agent(对话通过 agent 内互斥锁保证同一时刻一场)
             with ThreadPoolExecutor(max_workers=max(1, self.max_workers)) as executor:

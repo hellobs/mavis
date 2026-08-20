@@ -71,6 +71,9 @@ class Agent:
         )
         self.concepts, self.chats = [], config.get("chats", [])
 
+        # 业务关系配置(relationships.json 注入):本角色与其他角色的关系列表
+        self.relationships: List[dict] = config.get("relationships", [])
+
         # prompt
         from framework.prompt import Scratch
 
@@ -720,6 +723,38 @@ class Agent:
 
     def get_tile(self):
         return self.maze.tile_at(self.coord)
+
+    def inject_story_event(self, event: dict):
+        """注入剧情事件( story.json 的环境危机 )到本角色记忆
+
+        event: {"id","time","event_type","content","targets","expected","importance"}
+        事件作为高重要性记忆写入联想记忆,影响后续检索/对话/反思。
+        重要性由配置方在 story.json 的 importance 字段指定(缺省 10),
+        直接落库不走 LLM 打分(剧情是业务设定的事件,重要性是业务决策)。
+        """
+        content = event.get("content", "")
+        if not content:
+            return
+        importance = int(event.get("importance", 10) or 10)
+        ev = Event(
+            "环境",
+            "事件",
+            event.get("event_type", "突发"),
+            describe=f"{content}",
+            address=self.get_tile().get_address(),
+        )
+        try:
+            node = self.associate.add_node("event", ev, poignancy=importance)
+            self.status["poignancy"] += importance
+            self.logger.info(
+                "{} injected story {} (P{}): {}".format(
+                    self.name, event.get("id"), importance, content[:40]
+                )
+            )
+            return node
+        except Exception as e:
+            self.logger.warning("story inject failed: {}".format(e))
+            return None
 
     def get_event(self, as_act=True):
         return self.action.event if as_act else self.action.obj_event

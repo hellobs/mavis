@@ -146,6 +146,22 @@ def run_simulation(name, sim_config, start_step, step, stride):
             if "agent_base" not in sim_config:
                 sim_config["agent_base"] = {}
             sim_config["agent_base"]["associate"] = assoc
+
+        # 业务配置:relationships 注入 Agent,story 注入 Simulator
+        relationships, story = [], []
+        scenario_dir = os.path.join(BASE_DIR, "scenarios/investment")
+        rel_path = os.path.join(scenario_dir, "relationships.json")
+        if os.path.exists(rel_path):
+            with open(rel_path, "r", encoding="utf-8") as f:
+                relationships = json.load(f).get("relations", [])
+        story_path = os.path.join(scenario_dir, "story.json")
+        if os.path.exists(story_path):
+            with open(story_path, "r", encoding="utf-8") as f:
+                story = json.load(f).get("events", [])
+        # 每个 Agent 都能查到与任意角色的关系(注入到 agent_base 供所有角色共享)
+        if relationships:
+            sim_config.setdefault("agent_base", {})["relationships"] = relationships
+
         game = Game(name, "frontend/static", sim_config, conversation, timer=timer)
         game.reset_game()
 
@@ -159,6 +175,7 @@ def run_simulation(name, sim_config, start_step, step, stride):
         simulator = Simulator(
             max_workers=max(1, len(game.agents)),
             export_decisions=False,
+            story=story,
         )
         sim_state["status"] = "running"
         if step <= 0:

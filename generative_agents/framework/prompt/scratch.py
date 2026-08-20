@@ -1,4 +1,4 @@
-﻿import random
+import random
 import datetime
 import re
 from string import Template
@@ -42,6 +42,29 @@ class Scratch:
                 "date": self._timer.daily_format_cn(),
                 "currently": self.currently,
             }
+        )
+
+    def _relation_desc(self, agent, other_name):
+        """从 agent 的 relationships 配置中,提取本角色与 other 的关系描述"""
+        rels = getattr(agent, "relationships", None) or []
+        descs = []
+        for rel in rels:
+            agents = rel.get("agents", [])
+            if other_name not in agents:
+                continue
+            if agent.name not in agents:
+                continue
+            descs.append(
+                "{}({})：{}".format(
+                    rel.get("type", "业务关系"),
+                    rel.get("frequency", "medium"),
+                    rel.get("trigger", ""),
+                )
+            )
+        if not descs:
+            return ""
+        return "你和{}的关系：{}".format(
+            other_name, "；".join(descs)
         )
 
     def prompt_poignancy_event(self, event):
@@ -426,6 +449,7 @@ class Scratch:
         if chats:
             chat_history = f" {agent.name} 和 {other.name} 上次在 {chats[0].create} 聊过关于 {chats[0].describe} 的话题"
         a_des, o_des = _status_des(agent), _status_des(other)
+        relation_desc = self._relation_desc(agent, other.name)
 
         prompt = self.build_prompt(
             "decide_chat",
@@ -437,6 +461,7 @@ class Scratch:
                 "another_status": o_des,
                 "agent": agent.name,
                 "another": other.name,
+                "relation": relation_desc,
             }
         )
 
@@ -603,6 +628,8 @@ class Scratch:
         conversation = (
             conversation or "[对话尚未开始]"
         )
+        relation_desc = self._relation_desc(agent, other.name)
+        relation_note = f"\n{relation_desc}" if relation_desc else ""
 
         prompt = self.build_prompt(
             "generate_chat",
@@ -616,6 +643,7 @@ class Scratch:
                 "current_context": curr_context,
                 "another": other.name,
                 "conversation": conversation,
+                "relation": relation_note,
             }
         )
 

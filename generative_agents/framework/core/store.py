@@ -266,7 +266,9 @@ class LlamaIndexStore(MemoryStore):
                 self._index.insert_nodes([node])
                 return node
             except Exception as e:
-                print(f"LlamaIndexStore.add_node() caused an error: {e}")
+                from framework.runtime.logger import get_logger
+
+                get_logger("store").warning(f"LlamaIndexStore.add_node() error: {e}")
                 time.sleep(5)
         raise RuntimeError("LlamaIndexStore.add_node() failed after 10 retries")
 

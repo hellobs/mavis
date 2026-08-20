@@ -1,6 +1,6 @@
 """framework.core.agent_core — Agent 完整生命周期(组件注入式,纯逻辑)
 
-从 modules/agent.py 迁移完整实现:依赖全部注入(timer/llm/记忆/空间/提示词),
+从旧实现(modules/agent.py)迁移完整实现:依赖全部注入(timer/llm/记忆/空间/提示词),
 不 import modules。Agent 每步(think)编排:
     移动 → 取计划 → (睡/醒) → 感知 → 反应(对话/等待) → 反思 → 输出路径
 
@@ -33,7 +33,7 @@ chat_callback = None
 
 
 class Agent:
-    """框架版 Agent(与 modules.agent.Agent 行为对齐,依赖注入)"""
+    """框架版 Agent(与旧 modules.agent.Agent 行为对齐,依赖注入)"""
 
     def __init__(
         self,
@@ -49,6 +49,10 @@ class Agent:
         self.conversation = conversation
         self._llm = llm
         self._timer = timer or Timer()
+        if logger is None:
+            from framework.runtime.logger import get_logger
+
+            logger = get_logger(f"agent.{self.name}", level="info")
         self.logger = logger
 
         # agent config
@@ -150,13 +154,11 @@ class Agent:
         res = func(*args, **kwargs)._asdict()
         title, msg = "{}.{}".format(self.name, func_hint), {}
         if self.llm_available():
-            if self.logger:
-                self.logger.info("{} -> {}".format(self.name, func_hint))
+            self.logger.info("{} -> {}".format(self.name, func_hint))
             output = self._llm.completion(**res)
             msg = {"<PROMPT>": "\n" + res["prompt"] + "\n"}
             msg.update({"response": output})
-        if self.logger:
-            self.logger.debug(_block_msg(title, msg))
+        self.logger.debug(_block_msg(title, msg))
         return output
 
     # ------------------------------------------------------------------
@@ -167,8 +169,7 @@ class Agent:
         plan, _ = self.make_schedule()
 
         if (plan["describe"] == "sleeping" or "睡" in plan["describe"]) and self.is_awake():
-            if self.logger:
-                self.logger.info("{} is going to sleep...".format(self.name))
+            self.logger.info("{} is going to sleep...".format(self.name))
             address = self.spatial.find_address("睡觉", as_list=True)
             tiles = self.maze.get_address_tiles(address)
             coord = random.choice(list(tiles))
@@ -239,8 +240,7 @@ class Agent:
 
     def make_schedule(self):
         if not self.schedule.scheduled(self._timer):
-            if self.logger:
-                self.logger.info("{} is making schedule...".format(self.name))
+            self.logger.info("{} is making schedule...".format(self.name))
             # update currently
             if self.associate.index.nodes_num > 0:
                 self.associate.cleanup_index()
@@ -249,10 +249,9 @@ class Agent:
                     f"在 {self.name} 的生活中，重要的近期事件。",
                 ]
                 retrieved = self.associate.retrieve_focus(focus)
-                if self.logger:
-                    self.logger.info(
-                        "{} retrieved {} concepts".format(self.name, len(retrieved))
-                    )
+                self.logger.info(
+                    "{} retrieved {} concepts".format(self.name, len(retrieved))
+                )
                 if retrieved:
                     plan = self.completion("retrieve_plan", retrieved)
                     thought = self.completion("retrieve_thought", retrieved)
@@ -363,10 +362,9 @@ class Agent:
                     self.status["poignancy"] += node.poignancy
                 self.concepts.append(node)
         self.concepts = [c for c in self.concepts if c.event.subject != self.name]
-        if self.logger:
-            self.logger.info(
-                "{} percept {}/{} concepts".format(self.name, valid_num, len(self.concepts))
-            )
+        self.logger.info(
+            "{} percept {}/{} concepts".format(self.name, valid_num, len(self.concepts))
+        )
 
     def make_plan(self, agents):
         if self._reaction(agents):
@@ -398,15 +396,14 @@ class Agent:
         nodes = self.associate.retrieve_events() + self.associate.retrieve_thoughts()
         if not nodes:
             return
-        if self.logger:
-            self.logger.info(
-                "{} reflect(P{}/{}) with {} concepts...".format(
-                    self.name,
-                    self.status["poignancy"],
-                    self.think_config["poignancy_max"],
-                    len(nodes),
-                )
+        self.logger.info(
+            "{} reflect(P{}/{}) with {} concepts...".format(
+                self.name,
+                self.status["poignancy"],
+                self.think_config["poignancy_max"],
+                len(nodes),
             )
+        )
         nodes = sorted(nodes, key=lambda n: n.access, reverse=True)[
             : self.associate.max_importance
         ]
@@ -468,8 +465,7 @@ class Agent:
         return pathes[target][1:]
 
     def _determine_action(self):
-        if self.logger:
-            self.logger.info("{} is determining action...".format(self.name))
+        self.logger.info("{} is determining action...".format(self.name))
         plan, de_plan = self.schedule.current_plan(self._timer)
         describes = [plan["describe"], de_plan["describe"]]
         address = self.spatial.find_address(describes[0], as_list=True)
@@ -573,12 +569,11 @@ class Agent:
         chats = self.associate.retrieve_chats(other.name)
         if chats:
             delta = self._timer.get_delta(chats[0].create)
-            if self.logger:
-                self.logger.info(
-                    "retrieved chat between {} and {}({} min):\n{}".format(
-                        self.name, other.name, delta, chats[0]
-                    )
+            self.logger.info(
+                "retrieved chat between {} and {}({} min):\n{}".format(
+                    self.name, other.name, delta, chats[0]
                 )
+            )
             if delta < 20:
                 return False
 
@@ -587,8 +582,7 @@ class Agent:
             if random.random() < 0.5:
                 return False
 
-        if self.logger:
-            self.logger.info("{} decides chat with {}".format(self.name, other.name))
+        self.logger.info("{} decides chat with {}".format(self.name, other.name))
         start, chats = self._timer.get_date(), []
         relations = [
             self.completion("summarize_relation", self, other.name),
@@ -649,14 +643,13 @@ class Agent:
             self.conversation[key] = []
         self.conversation[key].append({f"{self.name} -> {other.name} @ {'，'.join(self.get_event().address)}": chats})
 
-        if self.logger:
-            self.logger.info(
-                "{} and {} has chats\n  {}".format(
-                    self.name,
-                    other.name,
-                    "\n  ".join(["{}: {}".format(n, c) for n, c in chats]),
-                )
+        self.logger.info(
+            "{} and {} has chats\n  {}".format(
+                self.name,
+                other.name,
+                "\n  ".join(["{}: {}".format(n, c) for n, c in chats]),
             )
+        )
         chat_summary = self.completion("summarize_chats", chats)
         duration = int(sum([len(c[1]) for c in chats]) / 240)
         self.schedule_chat(
@@ -674,8 +667,7 @@ class Agent:
             return False
         if not self.completion("decide_wait", self, other, focus):
             return False
-        if self.logger:
-            self.logger.info("{} decides wait to {}".format(self.name, other.name))
+        self.logger.info("{} decides wait to {}".format(self.name, other.name))
         start = self._timer.get_date()
         t = other.action.end - start
         duration = int(t.total_seconds() / 60)
@@ -716,8 +708,7 @@ class Agent:
             poignancy = self.completion("poignancy_chat", event)
         else:
             poignancy = self.completion("poignancy_event", event)
-        if self.logger:
-            self.logger.debug("{} add associate {}".format(self.name, event))
+        self.logger.debug("{} add associate {}".format(self.name, event))
         return self.associate.add_node(
             e_type,
             event,

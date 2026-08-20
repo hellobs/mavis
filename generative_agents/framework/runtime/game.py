@@ -19,6 +19,10 @@ class Game:
         self.name = name
         self.static_root = static_root
         self.record_iterval = config.get("record_iterval", 30)
+        if logger is None:
+            from framework.runtime.logger import get_logger
+
+            logger = get_logger(f"game.{name}", level="info")
         self.logger = logger
         self._timer = timer or Timer()
         self.maze = Maze(self.load_static(config["maze"]["path"]), self.logger)
@@ -81,11 +85,10 @@ class Game:
             info["record"] = False
         if agent.llm_available():
             info["llm"] = agent._llm.get_summary()
-        if self.logger:
-            title = "{}.summary @ {}".format(
-                name, self._timer.get_date("%Y%m%d-%H:%M:%S")
-            )
-            self.logger.info("\n{}\n{}\n".format(split_line(title), agent))
+        title = "{}.summary @ {}".format(
+            name, self._timer.get_date("%Y%m%d-%H:%M:%S")
+        )
+        self.logger.info("\n{}\n{}\n".format(split_line(title), agent))
         return {"plan": plan, "info": info}
 
     def load_static(self, path):
@@ -97,9 +100,8 @@ class Game:
     def reset_game(self):
         for a_name, agent in self.agents.items():
             agent.reset()
-            if self.logger:
-                title = "{}.reset".format(a_name)
-                self.logger.info("\n{}\n{}\n".format(split_line(title), agent))
+            title = "{}.reset".format(a_name)
+            self.logger.info("\n{}\n{}\n".format(split_line(title), agent))
 
 
 def split_line(title: str, fill: str = "=") -> str:

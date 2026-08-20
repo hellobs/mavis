@@ -1,6 +1,6 @@
 """framework.core.action — 行动(Action)(纯逻辑,时间注入)
 
-从 modules/memory/action.py 迁移:去掉对 modules.utils 全局 timer 的依赖,
+从旧实现(modules/memory/action.py)迁移:去掉对全局 timer 的依赖,
 时间由外部 Timer 传入(每次判断时用传入的 now,不读全局时钟)。
 """
 import datetime

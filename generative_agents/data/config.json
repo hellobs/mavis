@@ -14,7 +14,8 @@
                 "provider": "ollama",
                 "model": "qwen3:4b-instruct-2507-q4_K_M",
                 "base_url": "http://127.0.0.1:11434/v1",
-                "api_key": ""
+                "api_key": "",
+                "concurrency": 4
             },
             "interval": 1000,
             "poignancy_max": 150

@@ -45,17 +45,7 @@ cd generative_agents
 
 浏览器打开 http://127.0.0.1:5001/
 
-> 旧版 Flask+SSE 入口 `live.py` 保留源码,不再作为运行入口。
-
-### 3. 先跑后放(回放)
-
-```bash
-python start.py --name sim-test --start "20250213-09:30" --step 10 --stride 10
-python compress.py --name sim-test
-python replay.py
-```
-
-浏览器打开 http://127.0.0.1:5000/?name=sim-test
+> 这是唯一入口(框架驱动)。旧版 Flask+SSE 的 `live.py`、`start.py`、`compress.py`、`replay.py` 及 `modules/` 已随框架化移除,可在 git 历史回退。
 
 ## 常用参数
 
@@ -72,19 +62,14 @@ python replay.py
 
 ```
 generative_agents/
-├── start.py            # 模拟(无头,modules 驱动)
-├── live_fastapi.py     # 实时模拟+可视化(FastAPI + WebSocket,框架驱动,推荐入口)
-├── live.py             # 旧版实时服务(Flask + SSE,源码保留,不再作为运行入口)
-├── compress.py         # 压缩回放数据
-├── replay.py           # 回放服务
-├── framework/          # ★ 自研框架内核(零 modules/前端依赖,可独立运行)
+├── live_fastapi.py     # ★ 实时模拟+可视化(FastAPI + WebSocket,框架驱动,唯一入口)
+├── framework/          # ★ 自研框架内核(零前端依赖,可独立运行)
 │   ├── core/           #   Agent 生命周期/记忆/日程/空间/事件/时钟/提示词
 │   ├── scene/          #   空间/碰撞/寻路
-│   ├── runtime/        #   协议(protocol.py)/LLM 适配/游戏容器/并行调度
+│   ├── runtime/        #   协议(protocol.py)/LLM 适配/游戏容器/并行调度/实时压缩器
 │   ├── output/         #   决策导出(decisions.json)
-│   └── config/         #   场景配置加载
+│   └── config/         #   场景配置加载 + 模拟配置(新开/续跑)
 ├── scenarios/          # 业务场景配置(investment: 人物关系/剧情事件)
-├── modules/            # 旧业务实现(agent/memory/prompt/model,框架已接管,保留兼容)
 ├── frontend/           # 可视化前端(Phaser)
 ├── data/               # 配置与提示词
 └── results/            # 存档与回放数据
@@ -94,7 +79,7 @@ generative_agents/
 
 - 角色与场景配置见 `docs/角色设定采集模板.md`(给业务方填写)
 - 实时可视化走 WebSocket(`/ws`),推送框架契约消息(agent/time/chat_line/snapshot);浏览器断线 3s 后自动重连
-- 实时服务由 `framework/` 驱动(Game + Simulator),不依赖 `modules/`;`modules/` 保留供旧入口(start.py/live.py)使用
+- 实时服务由 `framework/` 驱动(Game + Simulator + LiveCompressor),项目已无 `modules/` 旧实现,全部逻辑在框架内
 - 记忆存储默认纯 stdlib(`SimpleStore`,零第三方依赖);要向量检索把 `agent_base.associate.embedding.provider` 改为 `ollama` 等即可(LlamaIndexStore)
 - 决策导出:模拟每步自动写 `results/decisions_<name>.json`(需在 Simulator 开启 `export_decisions`),该产物已加入 .gitignore 不入库
 - 换用英文界面/提示词:改 `framework/prompt/scratch.py` 与前端文案即可,逻辑无需改动

@@ -27,13 +27,14 @@ framework/
 ├── runtime/
 │   ├── protocol.py       # ★ 消息协议(前端/Unity/决策平台统一消费的契约)
 │   ├── llm.py            # LLM 适配接口(可插拔:Ollama/OpenAI)
-│   ├── llm_providers.py  # Provider 实现(包装现有 modules/model)
+│   ├── llm_providers.py  # Provider 实现(自包含,零 modules 依赖)
 │   ├── game.py           # 游戏容器(创建 agents + maze + conversation)
-│   └── simulator.py      # 并行调度 + 回调 + 存档 + 决策导出(与前端解耦)
+│   ├── simulator.py      # 并行调度 + 回调 + 存档 + 决策导出(与前端解耦)
+│   └── compressor.py     # 实时压缩器(逐步生成 Agent 状态/回放帧)
 ├── output/
 │   └── decisions.py      # 决策事件导出(供决策平台/专家界面)
 └── config/
-    └── loader.py         # 从业务层 scenarios/ 加载配置
+    └── loader.py         # 场景配置 + 模拟配置加载(personas/新开/续跑)
 ```
 
 ## 与业务层/前端层的关系
@@ -62,18 +63,12 @@ frontend/unity      前端壳(将来,WebSocket 消费同一协议)
 
 **坐标一律格子坐标;消息传输无关(SSE/WebSocket 都可)。**
 
-## 使用方式(2 条路线)
+## 使用方式(1 条路线)
 
-### A. 现有项目(modules/ 业务实现)——保持现状
-`start.py` / `live.py` / `replay.py` 继续用 `modules/`,框架层提供契约与抽象,不打断。
+### 框架驱动 ✅ 已落地
+`live_fastapi.py` 即框架路线——框架 `Game` + `Simulator` + `LiveCompressor` 驱动完整模拟(并行思考/存档/决策导出/WebSocket 推送),项目已无 `modules/` 旧实现,全部逻辑在框架内。投资场景 5 角色从零跑通验证。
 
-### B. 新场景 / 新前端——用框架 ✅ 已落地
-1. 建 `scenarios/<业务>/`(agents/scene/relationships/story)
-2. `ScenarioConfig` 加载 → `Maze` + Agent 组件
-3. `Simulator` 驱动 → 产出 `protocol` 消息
-4. 前端(Phaser/Unity)按协议消费
-
-**当前实现**:`live_fastapi.py` 即 B 路线——框架 `Game` + `Simulator` 驱动完整模拟(并行思考/存档/决策导出/WebSocket 推送),不 import `modules`。投资场景 5 角色从零跑通验证。
+> 旧实现(start.py/live.py/compress.py/replay.py + modules/)已移除,可在 git 历史回退。
 
 ## Unity 迁移(框架视角)
 

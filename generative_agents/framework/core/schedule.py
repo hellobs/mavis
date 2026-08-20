@@ -1,6 +1,6 @@
 """framework.core.schedule — 日程(Schedule)(纯逻辑,时间注入)
 
-从 modules/memory/schedule.py 迁移:去掉对 modules.utils 全局 timer 的依赖,
+从旧实现(modules/memory/schedule.py)迁移:去掉对全局 timer 的依赖,
 "当前计划/时间戳"等需要时间判断的方法由外部传入 now(datetime 或 Timer)。
 """
 from typing import Dict, List, Optional, Tuple

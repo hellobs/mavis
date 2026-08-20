@@ -1,11 +1,8 @@
 """实时模拟 + 可视化服务(FastAPI + WebSocket 版)
 
-替代 live.py 的 Flask+SSE,推送同一套 framework 契约消息(protocol.py)。
+框架驱动:framework Game + Simulator + LiveCompressor,推送 framework 契约消息。
 - 页面渲染:Jinja2 模板(复用现有前端)
 - 实时推送:WebSocket /ws(双向,为 Unity 交互铺路)
-- 模拟调度:复用现有 SimulateServer + LiveCompressor,广播走 WebSocket
-
-Flask 版 live.py 源代码保留(不再作为运行入口)。
 """
 import os
 import json
@@ -20,8 +17,8 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
-from start import personas, get_config, get_config_from_log
-from compress import LiveCompressor
+from framework.config.loader import personas, load_config, load_config_from_log
+from framework.runtime.compressor import LiveCompressor
 
 from framework.runtime.protocol import AgentState, TimeMsg, ChatLineMsg, validate_message
 
@@ -183,9 +180,9 @@ def run_simulation(name, sim_config, start_step, step, stride):
         sim_state["status"] = "done"
         manager.broadcast({"type": "done"})
     except Exception as e:
-        import traceback
+        from framework.runtime.logger import get_logger
 
-        traceback.print_exc()
+        get_logger("simulation").error(f"simulation crashed: {e}", exc_info=True)
         sim_state["status"] = "error"
         sim_state["error"] = str(e)
         manager.broadcast({"type": "error", "message": str(e)})
@@ -290,13 +287,13 @@ if __name__ == "__main__":
 
     checkpoints_folder = f"results/checkpoints/{name}"
     if args.resume:
-        sim_config = get_config_from_log(checkpoints_folder)
+        sim_config = load_config_from_log(checkpoints_folder)
         if sim_config is None:
             print("No checkpoint file found to resume running.")
             exit(0)
         start_step = sim_config["step"]
     else:
-        sim_config = get_config(args.start, args.stride, personas)
+        sim_config = load_config(args.start, args.stride, personas)
         start_step = 0
 
     sim_state["start_time"] = sim_config["time"]["start"]

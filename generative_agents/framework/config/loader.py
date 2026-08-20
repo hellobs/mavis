@@ -62,3 +62,74 @@ def scenario_dir_path(scenario_dir: str) -> str:
 
 def load_scenario(scenario_dir: str) -> ScenarioConfig:
     return ScenarioConfig(scenario_dir)
+
+
+# ---------------------------------------------------------------------------
+# 投资场景默认角色(从 start.py 迁移)
+# ---------------------------------------------------------------------------
+personas = [
+    "沈砚之",  # 首席投资顾问：价值投资派，负责资产配置与投资决策
+    "苏清越",  # 量化交易分析师：数据驱动，负责交易模型与信号
+    "陈慕白",  # 行业研究员：基本面分析，负责个股与行业调研
+    "林晚晴",  # 风控合规专员：风险敏感，负责风险评估与止损设定
+    "老周",    # 资深散户投资者：经验丰富但情绪化，易受市场情绪影响
+]
+
+
+# ---------------------------------------------------------------------------
+# 模拟配置加载(从 start.py 迁移:新模拟 / 断点续跑)
+# ---------------------------------------------------------------------------
+import datetime
+
+
+def load_config(start_time: str = "20240213-09:30", stride: int = 15,
+                 agents: Optional[List[str]] = None) -> dict:
+    """为新游戏创建配置(等价 start.get_config)"""
+    with open("data/config.json", "r", encoding="utf-8") as f:
+        json_data = json.load(f)
+        agent_config = json_data["agent"]
+
+    assets_root = os.path.join("assets", "village")
+    config = {
+        "stride": stride,
+        "time": {"start": start_time},
+        "maze": {"path": os.path.join(assets_root, "maze.json")},
+        "agent_base": agent_config,
+        "agents": {},
+    }
+    for a in (agents or []):
+        config["agents"][a] = {
+            "config_path": os.path.join(
+                assets_root, "agents", a.replace(" ", "_"), "agent.json"
+            ),
+        }
+    return config
+
+
+def load_config_from_log(checkpoints_folder: str):
+    """从存档数据中载入配置,用于断点恢复(等价 start.get_config_from_log)"""
+    files = sorted(os.listdir(checkpoints_folder))
+
+    json_files = list()
+    for file_name in files:
+        if file_name.endswith(".json") and file_name != "conversation.json":
+            json_files.append(os.path.join(checkpoints_folder, file_name))
+
+    if len(json_files) < 1:
+        return None
+
+    with open(json_files[-1], "r", encoding="utf-8") as f:
+        config = json.load(f)
+
+    assets_root = os.path.join("assets", "village")
+
+    start_time = datetime.datetime.strptime(config["time"], "%Y%m%d-%H:%M")
+    start_time += datetime.timedelta(minutes=config["stride"])
+    config["time"] = {"start": start_time.strftime("%Y%m%d-%H:%M")}
+    agents = config["agents"]
+    for a in agents:
+        config["agents"][a]["config_path"] = os.path.join(
+            assets_root, "agents", a.replace(" ", "_"), "agent.json"
+        )
+
+    return config

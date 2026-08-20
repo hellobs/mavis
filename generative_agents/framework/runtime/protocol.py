@@ -114,6 +114,6 @@ def validate_message(msg: Dict[str, Any]) -> bool:
     t = msg["type"]
     if t == "agent":
         return "name" in msg and "coord" in msg
-    if t in ("time", "chat_line", "snapshot", "done", "error"):
+    if t in ("init", "time", "chat_line", "snapshot", "done", "error"):
         return True
     return False

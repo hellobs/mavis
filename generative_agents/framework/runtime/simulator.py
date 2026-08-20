@@ -20,7 +20,8 @@ class Simulator:
         on_agent: Optional[Callable] = None,      # 单 agent 完成: (name, state, step, sim_time)
         on_step: Optional[Callable] = None,       # 整步完成: (config)
         on_chat_line: Optional[Callable] = None,  # 对话逐句: (speaker, text)
-        max_workers: int = 5,
+        max_workers: int = 5,                     # 并行思考线程数
+        llm_concurrency: int = 0,                 # LLM 并发上限(0 = 自动 = max_workers)
         export_decisions: bool = False,           # 每步结束后导出决策流(experts 平台)
         decisions_path: str = "",
         roles: Optional[Dict[str, str]] = None,   # 角色名 -> 职位(决策导出用)
@@ -30,6 +31,8 @@ class Simulator:
         self.on_step = on_step
         self.on_chat_line = on_chat_line
         self.max_workers = max_workers
+        # LLM 并发上限:显式指定优先,否则取 max_workers(Ollama 单实例并发有限,过多线程只排队)
+        self.llm_concurrency = llm_concurrency or max_workers
         self.export_decisions = export_decisions
         self.decisions_path = decisions_path
         self.roles = roles or {}
@@ -51,8 +54,7 @@ class Simulator:
         timer = game._timer
         for i in range(start_step, start_step + step):
             title = "Simulate Step[{}/{}, time: {}]".format(i + 1, start_step + step, timer.get_date())
-            if game.logger:
-                game.logger.info("\n" + split_line(title, "="))
+            game.logger.info("\n" + split_line(title, "="))
             sim_time = timer.get_date("%Y%m%d-%H:%M")
 
             # 并行思考所有 Agent(对话通过 agent 内互斥锁保证同一时刻一场)
@@ -131,6 +133,9 @@ class Simulator:
         return status
 
     def _export_decisions(self, checkpoints_folder: str):
+        from framework.runtime.logger import get_logger
+
+        logger = get_logger("simulator")
         from framework.output.decisions import export_decision_stream
 
         try:
@@ -142,7 +147,7 @@ class Simulator:
                 roles=self.roles,
             )
         except Exception as e:
-            print(f"[decisions] export failed: {e}")
+            logger.warning(f"decisions export failed: {e}")
 
     def emit_time(self, time_str: str):
         if self.on_step:

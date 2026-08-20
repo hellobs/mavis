@@ -162,51 +162,93 @@ class _BaseProvider:
         ret = re.sub(r"<think>.*</think>", "", ret, flags=re.DOTALL)
 
         if return_type is not None:
-            try:
-                parsed = json.loads(ret)
-                return return_type.model_validate(parsed).res
-            except json.JSONDecodeError:
-                # 尝试:整体是合法 JSON 对象拼接({...}{...})→ 提取第一个完整对象
-                # 注意:LLM 可能输出 "文本"}{"res":...}(文本开头+残渣),
-                # 此时第一个对象不是 JSON,raw_decode 会从尾巴的 { 开始,丢掉真实文本。
-                # 因此仅当 ret 以 { 开头(确实是对象开头)时才走 raw_decode。
-                if ret.lstrip().startswith("{"):
-                    try:
-                        decoder = json.JSONDecoder()
-                        obj, _ = decoder.raw_decode(ret.lstrip())
-                        return return_type.model_validate(obj).res
-                    except Exception:
-                        pass
-                # 仍失败:清理 JSON 残渣后返回完整文本(优先保住真实内容)
-                return self._cleanup_json_residue(ret)
-            except Exception as e:
-                from framework.runtime.logger import get_logger
-
-                get_logger("llm").warning(f"validate response error: {e}")
-                return ret
+            return self._parse_output(ret, return_type)
         return ret
+
+    # ------------------------------------------------------------------
+    # 通用输出解析(三层策略,不针对具体残渣形态)
+    # ------------------------------------------------------------------
+    def _parse_output(self, text: str, return_type) -> str:
+        """从 LLM 输出中提取结构化结果,三层递进:
+
+        第 1 层:整体就是合法 JSON → 直接解析
+        第 2 层:文本中扫描所有合法 JSON 对象 → 取第一个能通过校验的 res
+                (覆盖:分析+最终输出、markdown 代码块、拼接对象、前置废话)
+        第 3 层:文本中无合法 JSON(LLM 直接输出了裸文本) → 统一截断清理
+        """
+        # 第 1 层:整体解析
+        try:
+            parsed = json.loads(text)
+            return return_type.model_validate(parsed).res
+        except Exception:
+            pass
+
+        # 第 2 层:扫描文本中所有合法 JSON 对象
+        for obj in self._scan_json_objects(text):
+            try:
+                return return_type.model_validate(obj).res
+            except Exception:
+                continue
+
+        # 第 3 层:裸文本,统一截断清理(去残渣,保文本)
+        return self._cleanup_text(text)
+
+    @staticmethod
+    def _scan_json_objects(text: str):
+        """扫描文本中所有可被 JSONDecoder 解析的对象(不关心残渣形态)
+
+        从每个 '{' 位置尝试 raw_decode,能解析出对象的都收进来。
+        返回对象列表(可能为空)。
+        """
+        objs = []
+        idx = 0
+        decoder = json.JSONDecoder()
+        while True:
+            start = text.find("{", idx)
+            if start < 0:
+                break
+            try:
+                obj, end = decoder.raw_decode(text[start:])
+                objs.append(obj)
+                idx = start + max(end, 1)
+            except Exception:
+                idx = start + 1
+        return objs
+
+    @staticmethod
+    def _cleanup_text(text: str) -> str:
+        """裸文本清理:从第一个"元信息残渣信号"处截断,保留对话正文
+
+        残渣信号 = LLM 在输出正文后附加的元信息起始处,常见形式:
+        - JSON 对象残渣: "}{ / " }{ / "} 时间戳 { / 孤立 { }
+        - markdown 代码块: ```
+        - 引导词:最终输出:/答案是:
+        - ISO 时间戳:2025-02-13T21:44:00Z
+        从最早出现的位置截断,并将截断点前的孤立引号/括号一并去掉。
+        """
+        stripped = text.strip()
+
+        # 统一残渣信号:覆盖所有已知元信息起始形式(一个正则,不再逐 case)
+        marker = re.compile(
+            r'"?\}\s*\{'                       # "}{ / " }{ / }{ (json拼接残渣)
+            r'|```'                             # markdown 代码块
+            r'|最终输出\s*[：:]'                # 引导词
+            r'|答案是\s*[：:]'
+            r'|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?'  # ISO时间戳
+            r'|"?\}(?=\s*[^"\s{])'             # "} 后跟非引号非大括号(如 "} 时间戳)
+        )
+        m = marker.search(stripped)
+        if m:
+            head = stripped[: m.start()]
+            # 去掉截断点前残留的孤立引号/大括号/空白
+            head = re.sub(r'[\s"{}]+$', "", head)
+            return head.strip()
+
+        # 无信号:删除行尾孤立引号/大括号后原样返回
+        return re.sub(r'["{}]+$', "", stripped).strip()
 
     def _chat(self, messages, temperature, response_format=None):
         raise NotImplementedError
-
-    @staticmethod
-    def _cleanup_json_residue(text: str) -> str:
-        """清理 LLM 输出中混入的 JSON 语法残渣
-
-        目标形态:真实文本在前,后跟 JSON 残渣(如 `"}{"res": "..."}`)。
-        只清理"残渣段",不破坏文本本身:
-        - 先尝试用 raw_decode 定位第一个合法 JSON 对象并删除它(处理 {...}{...})
-        - 再删除行尾孤立的引号/大括号(处理 "文本"}{ 等)
-        """
-        # 1) 若文本内含完整 JSON 对象(如 {"res": ...} 尾巴),删除第一个对象
-        m = re.search(r'\{[^{}]*"res"\s*:\s*"[^"]*"\s*\}', text)
-        if m:
-            text = text[: m.start()] + text[m.end():]
-        # 2) 删除对象拼接残渣 "}{ / "}{" / }{
-        text = re.sub(r'"?\}\{"?', "", text)
-        # 3) 删除行尾孤立的引号或大括号(仅当它们是"多出来的尾巴")
-        text = re.sub(r'["{}]+$', "", text)
-        return text.strip()
 
 
 class OllamaProvider(_BaseProvider):

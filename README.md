@@ -1,6 +1,6 @@
-# MAVIS 生成式智能体(由GenerativeAgents CN基础开发)
+# MAVIS 生成式多智能体框架
 
-基于斯坦福 AI 小镇(Generative Agents)重构的中文实现,用于多智能体仿真与可视化。
+基于斯坦福 AI 小镇(Generative Agents)重构的实现,用于多智能体仿真与可视化。
 
 ## 功能
 
@@ -9,14 +9,11 @@
 - 与传输无关的消息契约(protocol.py),支撑实时流与未来 Unity 客户端对接
 - 实时可视化:FastAPI + WebSocket 边跑边看(框架驱动),对话逐句推送、双向通道支持"人在回路"交互
 - 决策导出:模拟过程自动生成 decisions.json(时间/角色/动作/涉他/重要性),供决策平台与专家界面
-- 事后回放:模拟结果可压缩为回放数据,随时回看
 - 支持 DeepSeek API 与本地 Ollama 两种大模型后端
 
 ## 快速开始
 
 ### 1. 环境准备
-
-**方式 A:全新环境(推荐,不污染现有 Python)**
 
 需要 [uv](https://docs.astral.sh/uv/) 或 [conda](https://docs.conda.io/):
 
@@ -29,15 +26,6 @@ uv pip install -r requirements.txt
 # 或使用 conda
 conda create -n generative_agents_cn python=3.12
 conda activate generative_agents_cn
-pip install -r requirements.txt
-```
-
-**方式 B:已有 Python 环境**
-
-只要 Python ≥ 3.10,直接装依赖:
-
-```bash
-cd generative_agents
 pip install -r requirements.txt
 ```
 
@@ -74,8 +62,6 @@ python live_fastapi.py --name sim-test --start "20250213-09:30" --stride 2 --ste
 
 浏览器打开 http://127.0.0.1:5001/
 
-> 这是唯一入口(框架驱动)。旧版 Flask+SSE 的 `live.py`、`start.py`、`compress.py`、`replay.py` 及 `modules/` 已随框架化移除,可在 git 历史回退。
-
 ## 常用参数
 
 | 参数 | 说明 |
@@ -106,16 +92,11 @@ generative_agents/
 
 ## 说明
 
-- 角色与场景配置见 `docs/角色设定采集模板.md`(给业务方填写)
 - 实时可视化走 WebSocket(`/ws`),推送框架契约消息(agent/time/chat_line/snapshot);浏览器断线 3s 后自动重连
-- 实时服务由 `framework/` 驱动(Game + Simulator + LiveCompressor),项目已无 `modules/` 旧实现,全部逻辑在框架内
-- 记忆存储默认纯 stdlib(`SimpleStore`,零第三方依赖);要向量检索把 `agent_base.associate.embedding.provider` 改为 `ollama` 等即可(LlamaIndexStore)
-- 决策导出:模拟每步自动写 `results/decisions_<name>.json`(需在 Simulator 开启 `export_decisions`),该产物已加入 .gitignore 不入库
+- 实时服务由 `framework/` 驱动(Game + Simulator + LiveCompressor)
 - 换用英文界面/提示词:改 `framework/prompt/scratch.py` 与前端文案即可,逻辑无需改动
 - 前端 Phaser 脚本:服务端优先用 `frontend/static/vendor/phaser.min.js`(本地化,断网可用),不存在时回退 CDN;离线环境下建议下载 phaser.min.js 放入该目录
   - **首次运行前**(可选但推荐):在浏览器打开 `https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js`(约 1.3MB),右键另存为 `frontend/static/vendor/phaser.min.js`。之后无需外网即可显示画面
-- 前端已修复:移除旧角色贴图引用(伊莎贝拉)、动画 key 与播放方向对齐、玩家贴图改为当前角色
-
 
 ## 修改地图
 
@@ -125,13 +106,13 @@ generative_agents/
 2. 参考现有的maze.json格式，编写代码用于合并tiled编辑器导出的maze_meta_info.json、collision_maze.csv、sector_maze.csv等文件，为新地图生成maze.json。
 3. `jiejieje`已为本项目开发了一款地图标注工具，项目地址：https://github.com/jiejieje/tiled_to_maze.json
 
-## 5. 参考资料
+## 参考资料
 
-### 5.1 论文
+### 论文
 
 [Generative Agents: Interactive Simulacra of Human Behavior](https://arxiv.org/abs/2304.03442)
 
-### 5.2 代码
+### 代码
 
 [Generative Agents](https://github.com/joonspk-research/generative_agents)
 

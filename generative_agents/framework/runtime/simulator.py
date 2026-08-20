@@ -20,6 +20,7 @@ class Simulator:
         on_agent: Optional[Callable] = None,      # 单 agent 完成: (name, state, step, sim_time)
         on_step: Optional[Callable] = None,       # 整步完成: (config)
         on_chat_line: Optional[Callable] = None,  # 对话逐句: (speaker, text)
+        on_story: Optional[Callable] = None,      # 剧情注入: (event_dict)
         max_workers: int = 5,                     # 并行思考线程数
         llm_concurrency: int = 0,                 # LLM 并发上限(0 = 自动 = max_workers)
         export_decisions: bool = False,           # 每步结束后导出决策流(experts 平台)
@@ -31,6 +32,7 @@ class Simulator:
         self.on_agent = on_agent
         self.on_step = on_step
         self.on_chat_line = on_chat_line
+        self.on_story = on_story
         self.max_workers = max_workers
         # LLM 并发上限:显式指定优先,否则取 max_workers(Ollama 单实例并发有限,过多线程只排队)
         self.llm_concurrency = llm_concurrency or max_workers
@@ -107,6 +109,19 @@ class Simulator:
             game.logger.info(
                 "STORY {} @ {}: {}".format(ev.get("id"), now_hm, ev.get("content", "")[:50])
             )
+            # 剧情注入事件广播(前端开发者控制台可见)
+            if self.on_story:
+                try:
+                    self.on_story({
+                        "type": "story",
+                        "id": ev.get("id"),
+                        "time": now_hm,
+                        "event_type": ev.get("event_type", ""),
+                        "content": ev.get("content", ""),
+                        "targets": targets,
+                    })
+                except Exception as e:
+                    game.logger.warning("story broadcast failed: {}".format(e))
 
     def simulate(self, game, config, step, stride=0, start_step=0, checkpoints_folder="", on_step=None, on_agent=None):
         """连续模拟多步(等价 SimulateServer.simulate)

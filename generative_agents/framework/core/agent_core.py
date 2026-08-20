@@ -242,7 +242,9 @@ class Agent:
         return events
 
     def make_schedule(self):
+        just_created = False
         if not self.schedule.scheduled(self._timer):
+            just_created = True
             self.logger.info("{} is making schedule...".format(self.name))
             # update currently
             if self.associate.index.nodes_num > 0:
@@ -302,9 +304,9 @@ class Agent:
                 event,
                 expire=self.schedule.create + datetime.timedelta(days=30),
             )
-        # decompose current plan
+        # decompose current plan(首轮刚建日程时跳过:先跑起来,当天后续再拆)
         plan, _ = self.schedule.current_plan(self._timer)
-        if self.schedule.decompose(plan):
+        if not just_created and self.schedule.decompose(plan):
             decompose_schedule = self.completion(
                 "schedule_decompose", plan, self.schedule
             )
@@ -471,28 +473,17 @@ class Agent:
         self.logger.info("{} is determining action...".format(self.name))
         plan, de_plan = self.schedule.current_plan(self._timer)
         describes = [plan["describe"], de_plan["describe"]]
-        address = self.spatial.find_address(describes[0], as_list=True)
-        if not address:
-            tile = self.get_tile()
-            kwargs = {
-                "describes": describes,
-                "spatial": self.spatial,
-                "address": tile.get_address("world", as_list=True),
-            }
-            kwargs["address"].append(
-                self.completion("determine_sector", **kwargs, tile=tile)
-            )
-            arenas = self.spatial.get_leaves(kwargs["address"])
-            if len(arenas) == 1:
-                kwargs["address"].append(arenas[0])
-            else:
-                kwargs["address"].append(self.completion("determine_arena", **kwargs))
-            objs = self.spatial.get_leaves(kwargs["address"])
-            if len(objs) == 1:
-                kwargs["address"].append(objs[0])
-            elif len(objs) > 1:
-                kwargs["address"].append(self.completion("determine_object", **kwargs))
-            address = kwargs["address"]
+
+        # 行动定位缓存:同一计划段内目标地址稳定,避免每步重复调 LLM
+        # 键 = 计划描述(计划变了自然换键,缓存自动失效)
+        cache_key = (plan.get("idx"), de_plan.get("idx"), describes[0], describes[1])
+        if not hasattr(self, "_action_cache"):
+            self._action_cache = {}
+        if cache_key in self._action_cache:
+            address = self._action_cache[cache_key]
+        else:
+            address = self._resolve_action_address(describes)
+            self._action_cache[cache_key] = address
 
         event = self.make_event(self.name, describes[-1], address)
         obj_describe = self.completion("describe_object", address[-1], describes[-1])
@@ -506,6 +497,32 @@ class Agent:
             duration=de_plan["duration"],
             start=self._timer.daily_time(de_plan["start"]),
         )
+
+    def _resolve_action_address(self, describes):
+        """解析行动目标地址(定位链:空间匹配优先,LLM 兜底)"""
+        address = self.spatial.find_address(describes[0], as_list=True)
+        if address:
+            return address
+        tile = self.get_tile()
+        kwargs = {
+            "describes": describes,
+            "spatial": self.spatial,
+            "address": tile.get_address("world", as_list=True),
+        }
+        kwargs["address"].append(
+            self.completion("determine_sector", **kwargs, tile=tile)
+        )
+        arenas = self.spatial.get_leaves(kwargs["address"])
+        if len(arenas) == 1:
+            kwargs["address"].append(arenas[0])
+        else:
+            kwargs["address"].append(self.completion("determine_arena", **kwargs))
+        objs = self.spatial.get_leaves(kwargs["address"])
+        if len(objs) == 1:
+            kwargs["address"].append(objs[0])
+        elif len(objs) > 1:
+            kwargs["address"].append(self.completion("determine_object", **kwargs))
+        return kwargs["address"]
 
     def _reaction(self, agents=None, ignore_words=None):
         focus = None
@@ -755,6 +772,24 @@ class Agent:
         except Exception as e:
             self.logger.warning("story inject failed: {}".format(e))
             return None
+
+    def recent_story_events(self, topk: int = 2) -> List[str]:
+        """最近注入的剧情事件描述(供对话/思考检索焦点使用)
+
+        从联想记忆中找 subject="环境" 的事件节点(剧情注入写入的),
+        按重要性降序取最近 topk 条,返回描述文本列表。
+        """
+        try:
+            nodes = self.associate.retrieve_events()
+            story_nodes = [
+                n for n in nodes if getattr(n, "event", None)
+                and n.event.subject == "环境"
+            ]
+            story_nodes.sort(key=lambda n: n.poignancy, reverse=True)
+            return [n.describe for n in story_nodes[:topk]]
+        except Exception as e:
+            self.logger.warning("recent_story_events failed: {}".format(e))
+            return []
 
     def get_event(self, as_act=True):
         return self.action.event if as_act else self.action.obj_event

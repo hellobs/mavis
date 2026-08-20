@@ -162,6 +162,13 @@ def run_simulation(name, sim_config, start_step, step, stride):
         if relationships:
             sim_config.setdefault("agent_base", {})["relationships"] = relationships
 
+        # LLM 并发与角色数匹配:config 未显式指定 concurrency 时,取角色数
+        # (首轮并行建日程是瓶颈,让并发=角色数,避免第 N 个 agent 干等)
+        agent_count = len(sim_config.get("agents", {}))
+        llm_cfg = sim_config.setdefault("agent_base", {}).setdefault("think", {}).setdefault("llm", {})
+        if llm_cfg.get("concurrency", 0) <= 0:
+            llm_cfg["concurrency"] = max(1, agent_count)
+
         game = Game(name, "frontend/static", sim_config, conversation, timer=timer)
         game.reset_game()
 
@@ -176,6 +183,7 @@ def run_simulation(name, sim_config, start_step, step, stride):
             max_workers=max(1, len(game.agents)),
             export_decisions=False,
             story=story,
+            on_story=lambda ev: manager.broadcast(ev),
         )
         sim_state["status"] = "running"
         if step <= 0:

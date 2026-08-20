@@ -444,6 +444,13 @@ class Scratch:
             [c.describe for c in focus["events"]]
         )
         context += "\n" + "。".join([c.describe for c in focus["thoughts"]]) 
+        # 补充最近剧情事件(环境危机),让角色更倾向讨论
+        try:
+            story_ctx = agent.recent_story_events(1)
+            if story_ctx:
+                context += "\n近期事件：" + story_ctx[0]
+        except Exception:
+            pass
         date_str = self._timer.get_date("%Y-%m-%d %H:%M:%S")
         chat_history = ""
         if chats:
@@ -603,6 +610,13 @@ class Scratch:
 
     def prompt_generate_chat(self, agent, other, relation, chats):
         focus = [relation, other.get_event().get_describe()]
+        # 检索焦点加入最近的剧情事件(环境危机),让对话能体现
+        try:
+            story_focus = agent.recent_story_events(1)
+            if story_focus:
+                focus.append(story_focus[0])
+        except Exception:
+            pass
         if len(chats) > 4:
             focus.append("; ".join("{}: {}".format(n, t) for n, t in chats[-4:]))
         nodes = agent.associate.retrieve_focus(focus, 15)
@@ -623,6 +637,13 @@ class Scratch:
         curr_context = (
             f"{agent.name} {agent.get_event().get_describe(False)} 时，看到 {other.name} {other.get_event().get_describe(False)}。"
         )
+        # 当前情境补充最近剧情事件(若有),让对话带上环境背景
+        try:
+            story_ctx = agent.recent_story_events(1)
+            if story_ctx:
+                curr_context += f"\n近期事件：{story_ctx[0]}"
+        except Exception:
+            pass
 
         conversation = "\n".join(["{}: {}".format(n, u) for n, u in chats])
         conversation = (

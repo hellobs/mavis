@@ -6,16 +6,15 @@
             "att_bandwidth": 8
         },
         "schedule": {
-            "max_try": 5,
-            "diversity": 5
+            "max_try": 2,
+            "diversity": 3
         },
         "think": {
             "llm": {
                 "provider": "ollama",
                 "model": "qwen3:4b-instruct-2507-q4_K_M",
                 "base_url": "http://127.0.0.1:11434/v1",
-                "api_key": "",
-                "concurrency": 4
+                "api_key": ""
             },
             "interval": 1000,
             "poignancy_max": 150

@@ -109,17 +109,69 @@
 	let cursors;
 	let player;
 
+	// ================= 开发者控制台 =================
+	// 记录一条消息到控制台面板(带时间戳,按类型着色)
+	function devLog(cat, text) {
+		var body = document.getElementById("dev-console-body");
+		if (!body) return;
+		var now = new Date();
+		var ts = ("0" + now.getHours()).slice(-2) + ":" + ("0" + now.getMinutes()).slice(-2) + ":" + ("0" + now.getSeconds()).slice(-2);
+		var color = "#ccc";
+		if (cat === "agent") color = "#6cf";
+		else if (cat === "chat") color = "#fc6";
+		else if (cat === "time") color = "#6f6";
+		else if (cat === "event") color = "#f66";
+		else if (cat === "error") color = "#f44";
+		else if (cat === "sys") color = "#888";
+		var div = document.createElement("div");
+		div.innerHTML = "<span style='color:#888;'>[" + ts + "]</span> <span style='color:" + color + ";'>" + cat + "</span> " + text;
+		body.appendChild(div);
+		// 最多保留 300 条,超出清旧
+		while (body.children.length > 300) body.removeChild(body.firstChild);
+		body.scrollTop = body.scrollHeight;
+	}
+	// 控制台开合
+	function devToggle() {
+		var body = document.getElementById("dev-console-body");
+		var t = document.getElementById("dev-console-toggle");
+		if (body.style.display === "none") {
+			body.style.display = "block";
+			t.innerHTML = "收起 ▾";
+		} else {
+			body.style.display = "none";
+			t.innerHTML = "展开 ▸";
+		}
+	}
+	// ================= 全局错误捕获(进控制台) =================
+	// 1) JS 运行时错误
+	window.onerror = function(msg, src, line, col, err) {
+		devLog("error", "JS错误: " + msg + " (" + (src || "").split("/").pop() + ":" + line + ":" + col + ")");
+		return false;  // 不阻止默认行为
+	};
+	// 2) 未捕获的 Promise 拒绝
+	window.addEventListener("unhandledrejection", function(e) {
+		var reason = e.reason;
+		var text = reason && reason.message ? reason.message : String(reason);
+		devLog("error", "Promise拒绝: " + text);
+	});
+	// 3) 后端 error 消息已在 ws.onmessage 中处理(devLog event)
+	document.addEventListener("DOMContentLoaded", function() {
+		var h = document.getElementById("dev-console-header");
+		if (h) h.onclick = devToggle;
+	});
+
 	// Live mode: 通过 WebSocket 接收模拟推送,直接驱动 agent 移动(协议见 framework/runtime/protocol.py)
 	if (live_mode) {
 		let sse_state = "connecting";
 		let ws = new WebSocket("ws://" + location.host + "/ws");
-		ws.onopen = function() { sse_state = "connected"; console.log("[WS] connected"); };
-		ws.onclose = function() { sse_state = "error"; console.log("[WS] closed - reconnect"); setTimeout(function() { location.reload(); }, 3000); };
-		ws.onerror = function() { sse_state = "error"; console.log("[WS] error"); };
+		ws.onopen = function() { sse_state = "connected"; devLog("sys", "WebSocket 已连接"); };
+		ws.onclose = function() { sse_state = "error"; devLog("sys", "WebSocket 断开,3秒后重连"); setTimeout(function() { location.reload(); }, 3000); };
+		ws.onerror = function() { sse_state = "error"; devLog("sys", "WebSocket 错误"); };
 		// (WebSocket 断线由 onclose 处理:3 秒后刷新页面重连)
 		ws.onmessage = function(e) {
 			const msg = JSON.parse(e.data);
 			if (msg.type === "agent") {
+				devLog("agent", msg.name + " → " + (msg.action || "").slice(0, 30) + " @ " + JSON.stringify(msg.coord));
 				moveAgent(msg.name, msg.coord, msg.action, msg.location, msg.currently, msg.path);
 				if (msg.conversation) {
 					Object.assign(all_movement["conversation"], msg.conversation);
@@ -132,15 +184,29 @@
 				}
 			} else if (msg.type === "chat_line") {
 				// 对话逐句实时显示
+				devLog("chat", msg.speaker + ": " + (msg.text || "").slice(0, 40));
 				appendChatLine(msg.speaker, msg.text);
 			} else if (msg.type === "time") {
+				devLog("time", "游戏时间 → " + msg.time);
 				setCurrentTime(msg.time);
 			} else if (msg.type === "snapshot") {
+				devLog("sys", "快照: " + Object.keys(msg.agents || {}).length + " 个角色, 时间 " + msg.time);
 				applySnapshot(msg.agents, msg.time);
 			} else if (msg.type === "done") {
+				devLog("sys", "模拟结束");
 				sim_finished = true;
 			} else if (msg.type === "error") {
+				devLog("event", "错误: " + (msg.message || ""));
 				sim_error = msg.message || "模拟出错";
+			} else if (msg.type === "story") {
+				// 剧情事件注入:控制台醒目提示
+				devLog("event", "【" + (msg.event_type || "事件") + "】" + (msg.content || "").slice(0, 50) + " → " + (msg.targets || []).join(","));
+				var banner = document.getElementById("story-banner");
+				if (banner) {
+					banner.innerHTML = "🔔 【" + (msg.event_type || "事件") + "】" + msg.content + "<br><small style='color:#666;'>影响: " + (msg.targets || []).join("、") + " @ " + (msg.time || "") + "</small>";
+					banner.style.display = "block";
+					setTimeout(function() { banner.style.display = "none"; }, 8000);
+				}
 			}
 			// 诊断:显示连接状态
 			window.__sse_state = sse_state;
@@ -315,31 +381,7 @@
 			return res;
 		}
 
-		posX = 20;
-		posY = 20;
-
-		// Add button: play, pause ...
-		buttonPlay = add_text(this, posX, posY, "[运行]", "#ffffcc");
-		buttonPlay.setInteractive();
-		posX += buttonPlay.width + 10;
-
-		buttonPause = add_text(this, posX, posY, " 暂停 ", "#ffffcc");
-		buttonPause.setInteractive();
-		posX += buttonPause.width + 10;
-
-		buttonShowConversation = add_text(this, posX, posY, "[显示对话]", "#ffffcc");
-		buttonShowConversation.setInteractive();
-		posX += buttonShowConversation.width + 10;
-
-		buttonHideConversation = add_text(this, posX, posY, " 隐藏对话 ", "#ffffcc");
-		buttonHideConversation.setInteractive();
-		posX += buttonHideConversation.width + 10;
-
-		// Phaser 画布内不再显示时间(改用 HTML 时钟 sim-clock)
-
-		// Show live status (直播模式状态显示)
-		textStatus = add_text(this, 20, 60, " —— ", "#ffffcc");
-		textStatus.setVisible(live_mode);
+		// 对话面板常显,不再提供 运行/暂停/显示对话/隐藏对话 按钮
 
 		// Setup camera(玩家跟随角色用第一个角色的贴图,纹理 key = 角色名)
 		let player_texture = Object.keys(persona_names)[0] || "atlas";
@@ -432,32 +474,7 @@
 
 	// Update function
 	function update(time, delta) {
-		// Setup play and pause button
-		buttonPlay.on("pointerdown", function() {
-			if (finished) return;
-			buttonPlay.text = "[运行]";
-			buttonPause.text = " 暂停 ";
-			paused = false;
-		});
-
-		buttonPause.on("pointerdown", function() {
-			if (finished) return;
-			buttonPlay.text = " 运行 ";
-			buttonPause.text = "[暂停]";
-			paused = true;
-		});
-
-		buttonShowConversation.on("pointerdown", function() {
-			buttonShowConversation.text = "[显示对话]";
-			buttonHideConversation.text = " 隐藏对话 ";
-			document.getElementById("chat-panel").style.display = "flex";
-		});
-
-		buttonHideConversation.on("pointerdown", function() {
-			buttonShowConversation.text = " 显示对话 ";
-			buttonHideConversation.text = "[隐藏对话]";
-			document.getElementById("chat-panel").style.display = "none";
-		});
+		// 对话面板常显(不再提供 显示/隐藏 按钮)
 
 		// Move camera
 		const camera_speed = 400;
@@ -482,18 +499,7 @@
 			document.getElementById("temp_focus").innerHTML = "";
 		}
 
-		if (live_mode) {
-			if (sim_finished) {
-				textStatus.setText("✅ 模拟结束 (" + FRONTEND_VERSION + ")");
-				buttonPlay.text = "[直播结束]";
-				buttonPause.setVisible(false);
-			} else if (sim_error) {
-				textStatus.setText("⚠️ " + sim_error + " (" + FRONTEND_VERSION + ")");
-			} else {
-				let clockVal = document.getElementById("sim-clock-time") ? document.getElementById("sim-clock-time").innerHTML : "--:--";
-				textStatus.setText("🟢 " + clockVal + " (v10) [SSE:" + (window.__sse_state || "?") + "] [time#" + (window.__time_count || 0) + "]");
-			}
-		} else if (finished || paused) {
+		if (live_mode && (sim_finished || sim_error)) {
 			return;
 		}
 

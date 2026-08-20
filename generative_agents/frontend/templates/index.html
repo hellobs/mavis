@@ -9,6 +9,12 @@
     padding: 6px 12px; font-size: 14px; font-weight: bold; color: #333;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);">🕒 <span id="sim-clock-time">--:--</span></div>
 
+<!-- 剧情事件提示条(事件注入时弹出) -->
+<div id="story-banner" style="position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 300; background: rgba(255,230,230,0.97); border: 2px solid #e55; border-radius: 8px;
+    padding: 10px 18px; font-size: 14px; color: #a00; font-weight: bold; display: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25); max-width: 60%; text-align: center;"></div>
+
 <!-- 对话记录面板(HTML,可滚动,说话者高亮) -->
 <div id="chat-panel" style="position: fixed; right: 16px; top: 16px; width: 340px; max-height: 65vh;
     background: rgba(255,255,255,0.96); border: 1px solid #d8d8d8; border-radius: 10px;
@@ -19,6 +25,30 @@
     <div id="chat-content" style="padding: 8px 14px; overflow-y: auto; max-height: calc(65vh - 42px);
         line-height: 1.7; color: #333; flex: 1;"></div>
 </div>
+
+<!-- 开发者控制台(实时消息流,可开合,带滚动条) -->
+<div id="dev-console" style="position: fixed; left: 16px; top: 120px; width: 320px; max-height: 55vh; z-index: 200;
+    background: rgba(17,17,17,0.92); border: 1px solid #444; border-radius: 8px;
+    font-size: 11px; color: #ccc; font-family: Consolas, monospace;
+    display: flex; flex-direction: column; overflow: hidden;">
+    <div id="dev-console-header" style="display:flex; justify-content:space-between; align-items:center;
+        padding: 6px 10px; background: #222; cursor: pointer; user-select: none; flex-shrink: 0;">
+        <span style="font-weight:bold; color:#4af;">🛠 开发者控制台</span>
+        <span id="dev-console-toggle" style="color:#888;">收起 ▾</span>
+    </div>
+    <div id="dev-console-body" style="padding: 6px 10px; overflow-y: scroll; flex: 1; line-height: 1.5;
+        max-height: calc(55vh - 34px); scrollbar-width: thin; scrollbar-color: #666 #222;">
+        <div style="color:#888;">控制台就绪,等待消息...</div>
+    </div>
+</div>
+
+<style>
+/* 开发者控制台滚动条(WebKit 浏览器) */
+#dev-console-body::-webkit-scrollbar { width: 8px; }
+#dev-console-body::-webkit-scrollbar-track { background: #222; border-radius: 4px; }
+#dev-console-body::-webkit-scrollbar-thumb { background: #666; border-radius: 4px; }
+#dev-console-body::-webkit-scrollbar-thumb:hover { background: #888; }
+</style>
 
 <div>
     <div class="row">

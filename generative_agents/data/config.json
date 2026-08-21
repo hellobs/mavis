@@ -20,6 +20,8 @@
             "poignancy_max": 150
         },
         "chat_iter": 4,
+        "chat_cooldown_min": 20,
+        "chat_retry_prob": 0.5,
         "associate": {
             "embedding": {
                 "provider": "ollama",

@@ -59,6 +59,9 @@ class Agent:
         self.percept_config = config["percept"]
         self.think_config = config["think"]
         self.chat_iter = config["chat_iter"]
+        # 对话频率参数(可配置,缺省保持原行为)
+        self.chat_cooldown_min = int(config.get("chat_cooldown_min", 20))
+        self.chat_retry_prob = float(config.get("chat_retry_prob", 0.5))
 
         # memory
         self.spatial = Spatial(**config["spatial"])
@@ -594,12 +597,12 @@ class Agent:
                     self.name, other.name, delta, chats[0]
                 )
             )
-            if delta < 20:
+            if delta < self.chat_cooldown_min:
                 return False
 
         if not self.completion("decide_chat", self, other, focus, chats):
-            # 提高对话频率:即使 LLM 不倾向,也有一半概率继续尝试
-            if random.random() < 0.5:
+            # 提高对话频率:即使 LLM 不倾向,也有一定概率继续尝试(可配置)
+            if random.random() < self.chat_retry_prob:
                 return False
 
         self.logger.info("{} decides chat with {}".format(self.name, other.name))

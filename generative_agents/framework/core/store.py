@@ -145,15 +145,44 @@ class SimpleStore(MemoryStore):
 
     def retrieve(self, text: str, node_ids: Optional[List[str]] = None, top_k: int = 5, now_str: str = "") -> List[_SimpleNode]:
         nodes = [self._nodes[n] for n in node_ids] if node_ids else list(self._nodes.values())
-        scored = []
-        for n in nodes:
-            relevance = _text_overlap(text, n.text)
-            poignancy = float(n.metadata.get("poignancy", 0.0))
-            access = n.metadata.get("access", "")
-            scored.append((n, relevance, poignancy, access))
-        # 先按相关性 + 重要性排序,同分按最近访问
-        scored.sort(key=lambda x: (x[1] + x[2] * 0.1, x[3]), reverse=True)
-        ranked = [n for n, *_ in scored[:top_k]]
+        if not nodes:
+            return []
+        # 三因子加权重排(对齐斯坦福论文:近因/相关/重要 归一化后加权)
+        # - relevance :词重叠(0~1)
+        # - importance:poignancy 归一化(重要性真实参与排序,高重要性事件可主导)
+        # - recency   :access 越新排名越靠前
+        # 权重对齐 RetrievalConfig 默认(recency 0.5 / relevance 3.0 / importance 2.0)
+        recency_w, relevance_w, importance_w = 0.5, 3.0, 2.0
+
+        ordered = sorted(
+            nodes,
+            key=lambda n: n.metadata.get("access", ""),
+            reverse=True,
+        )
+        relevance_raw = [_text_overlap(text, n.text) for n in ordered]
+        importance_raw = [float(n.metadata.get("poignancy", 0.0)) for n in ordered]
+        # 近因性:按访问序 0.995^排名
+        recency_raw = [0.995 ** (i + 1) for i in range(len(ordered))]
+
+        def _normalize(data, factor):
+            if not data:
+                return []
+            min_val, max_val = min(data), max(data)
+            diff = max_val - min_val
+            if diff == 0:
+                return [factor / 2 for _ in data]
+            return [(d - min_val) * factor / diff for d in data]
+
+        recency = _normalize(recency_raw, recency_w)
+        relevance = _normalize(relevance_raw, relevance_w)
+        importance = _normalize(importance_raw, importance_w)
+
+        scored = [
+            (n, r1 + r2 + i)
+            for n, r1, r2, i in zip(ordered, recency, relevance, importance)
+        ]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        ranked = [n for n, _ in scored[:top_k]]
         if now_str:
             for n in ranked:
                 n.metadata["access"] = now_str

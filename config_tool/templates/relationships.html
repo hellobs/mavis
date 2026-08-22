@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}关系录入{% endblock %}
+{% block content %}
+<h1>关系录入</h1>
+<p style="font-size:13px;color:#666;">定义两个角色之间的业务关系,追加到 relationships.json(与角色配置独立)。<span class="req">*</span> 必填,其余<span class="opt">(选填)</span>。</p>
+
+<form id="rel-form">
+    <div class="section">
+        <h2>新增关系</h2>
+        <div class="row">
+            <div><label>角色A <span class="req">*</span></label><input type="text" name="agent_a" required placeholder="如:老周"></div>
+            <div><label>角色B <span class="req">*</span></label><input type="text" name="agent_b" required placeholder="如:沈砚之"></div>
+            <div><label>关系类型 <span class="req">*</span></label><input type="text" name="type" placeholder="如:客户-顾问"></div>
+        </div>
+        <label>方向 <span class="opt">(选填)</span></label>
+        <input type="text" name="direction" placeholder="如:老周→沈砚之">
+        <label>互动约定 <span class="opt">(选填,什么情境下触发互动)</span></label>
+        <input type="text" name="trigger" placeholder="如:每天下午3点,老周找沈砚之咨询">
+        <label>频率 <span class="opt">(选填,默认 medium)</span></label>
+        <select name="frequency">
+            <option value="high">high</option>
+            <option value="medium" selected>medium</option>
+            <option value="low">low</option>
+        </select>
+        <button type="submit" style="margin-top:12px;">添加关系</button>
+        <div id="rel-result"></div>
+    </div>
+</form>
+
+{% if relations %}
+<h2>已添加关系({{ relations|length }})</h2>
+<table>
+    <tr>
+        <th>角色</th>
+        <th>类型</th>
+        <th>方向</th>
+        <th>互动约定</th>
+        <th>频率</th>
+        <th></th>
+    </tr>
+    {% for r in relations %}
+    <tr>
+        <td>{{ r.agents | join(' ↔ ') }}</td>
+        <td>{{ r.type or '' }}</td>
+        <td>{{ r.direction or '' }}</td>
+        <td>{{ r.trigger or '' }}</td>
+        <td>{{ r.frequency or '' }}</td>
+        <td><button type="button" class="del-btn" data-index="{{ loop.index0 }}" data-desc="{{ r.agents | join(' ↔ ') }}">删除</button></td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("rel-form").addEventListener("submit", async function(e) {
+    e.preventDefault();
+    var f = new FormData(this);
+    var data = {
+        business: "investment",
+        agents: (f.get("agent_a") || "").trim() + "," + (f.get("agent_b") || "").trim(),
+        type: f.get("type") || "",
+        direction: f.get("direction") || "",
+        trigger: f.get("trigger") || "",
+        frequency: f.get("frequency") || "medium"
+    };
+    var res = document.getElementById("rel-result");
+    res.className = "";
+    res.textContent = "添加中...";
+    try {
+        var resp = await fetch("/api/relationship", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(data)
+        });
+        var out = await resp.json();
+        if (out.ok) {
+            res.className = "ok";
+            res.textContent = "关系已添加: " + out.relation.agents.join(" ↔ ") + " (" + out.relation.type + ")";
+            this.reset();
+            setTimeout(function() { location.reload(); }, 600);
+        } else {
+            res.className = "error";
+            res.textContent = out.errors.join("\n");
+        }
+    } catch (err) {
+        res.className = "error";
+        res.textContent = "请求失败: " + err;
+    }
+});
+
+// 删除关系(按行号)
+document.querySelectorAll(".del-btn").forEach(function(btn) {
+    btn.addEventListener("click", async function() {
+        var index = parseInt(this.getAttribute("data-index"), 10);
+        var desc = this.getAttribute("data-desc") || "";
+        if (!confirm("确定删除关系: " + desc + " ?")) return;
+        try {
+            var resp = await fetch("/api/relationship/delete", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({business: "investment", index: index})
+            });
+            var out = await resp.json();
+            if (out.ok) {
+                location.reload();
+            } else {
+                alert(out.errors.join("\n"));
+            }
+        } catch (err) {
+            alert("请求失败: " + err);
+        }
+    });
+});
+</script>
+{% endblock %}

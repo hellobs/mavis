@@ -2,21 +2,30 @@
   "simulation": "investment",
   "relations": [
     {
-      "agents": ["老周", "沈砚之"],
+      "agents": [
+        "老周",
+        "沈砚之"
+      ],
       "type": "客户-顾问",
       "direction": "老周→沈砚之",
       "trigger": "每天下午3点，老周到会议室找沈砚之咨询行情与配置建议",
       "frequency": "high"
     },
     {
-      "agents": ["陈慕白", "苏清越"],
+      "agents": [
+        "陈慕白",
+        "苏清越"
+      ],
       "type": "数据协作",
       "direction": "双向",
       "trigger": "上午在资料室交叉验证新能源财报关键指标",
       "frequency": "medium"
     },
     {
-      "agents": ["林晚晴", "沈砚之"],
+      "agents": [
+        "林晚晴",
+        "沈砚之"
+      ],
       "type": "风控-决策",
       "direction": "林晚晴→沈砚之",
       "trigger": "评审会前，林晚晴到会议室提交风险评级结果",

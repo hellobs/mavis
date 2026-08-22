@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}剧情录入{% endblock %}
+{% block content %}
+<h1>剧情录入</h1>
+<p style="font-size:13px;color:#666;">定义环境事件/危机注入,追加到 story.json(与角色配置独立;触发时间用 HH:MM)。<span class="req">*</span> 必填,其余<span class="opt">(选填)</span>。</p>
+
+<form id="story-form">
+    <div class="section">
+        <h2>新增剧情</h2>
+        <div class="row">
+            <div><label>触发时间 <span class="req">*</span></label><input type="text" name="time" placeholder="如:10:00"></div>
+            <div><label>事件类型 <span class="req">*</span></label><input type="text" name="event_type" placeholder="如:市场波动"></div>
+            <div><label>重要性 <span class="opt">(选填,1-10,默认 8)</span></label><input type="number" name="importance" value="8" min="1" max="10"></div>
+        </div>
+        <label>事件内容 <span class="req">*</span></label>
+        <textarea name="content" placeholder="如:新能源板块盘中大幅波动,监管要求24小时内评估风险"></textarea>
+        <label>影响对象 <span class="opt">(选填,逗号分隔或 all,默认 all)</span></label>
+        <input type="text" name="targets" value="all">
+        <label>期望触发行为 <span class="opt">(选填)</span></label>
+        <input type="text" name="expected" placeholder="如:各角色评估风险,给出建议">
+        <button type="submit" style="margin-top:12px;">添加剧情</button>
+        <div id="story-result"></div>
+    </div>
+</form>
+
+{% if events %}
+<h2>已添加剧情({{ events|length }})</h2>
+<table>
+    <tr>
+        <th>时间</th>
+        <th>类型</th>
+        <th>内容</th>
+        <th>影响对象</th>
+        <th>重要性</th>
+        <th></th>
+    </tr>
+    {% for ev in events %}
+    <tr>
+        <td>{{ ev.time or '' }}</td>
+        <td>{{ ev.event_type or '' }}</td>
+        <td>{{ ev.content or '' }}</td>
+        <td>
+            {% if ev.targets %}{% if ev.targets is string %}{{ ev.targets }}{% else %}{{ ev.targets | join(', ') }}{% endif %}{% endif %}
+        </td>
+        <td>{{ ev.importance or '' }}</td>
+        <td><button type="button" class="del-btn" data-id="{{ ev.id }}" data-desc="{{ ev.event_type or '' }} @ {{ ev.time or '' }}">删除</button></td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("story-form").addEventListener("submit", async function(e) {
+    e.preventDefault();
+    var f = new FormData(this);
+    var data = {
+        business: "investment",
+        time: f.get("time") || "",
+        event_type: f.get("event_type") || "",
+        content: f.get("content") || "",
+        targets: f.get("targets") || "all",
+        expected: f.get("expected") || "",
+        importance: f.get("importance") || ""
+    };
+    var res = document.getElementById("story-result");
+    res.className = "";
+    res.textContent = "添加中...";
+    try {
+        var resp = await fetch("/api/story", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(data)
+        });
+        var out = await resp.json();
+        if (out.ok) {
+            res.className = "ok";
+            res.textContent = "剧情已添加: " + out.event.event_type + " @" + out.event.time;
+            this.reset();
+            setTimeout(function() { location.reload(); }, 600);
+        } else {
+            res.className = "error";
+            res.textContent = out.errors.join("\n");
+        }
+    } catch (err) {
+        res.className = "error";
+        res.textContent = "请求失败: " + err;
+    }
+});
+
+// 删除剧情(按 id)
+document.querySelectorAll(".del-btn").forEach(function(btn) {
+    btn.addEventListener("click", async function() {
+        var id = this.getAttribute("data-id");
+        var desc = this.getAttribute("data-desc") || id;
+        if (!confirm("确定删除剧情: " + desc + " ?")) return;
+        try {
+            var resp = await fetch("/api/story/delete", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({business: "investment", id: id})
+            });
+            var out = await resp.json();
+            if (out.ok) {
+                location.reload();
+            } else {
+                alert(out.errors.join("\n"));
+            }
+        } catch (err) {
+            alert("请求失败: " + err);
+        }
+    });
+});
+</script>
+{% endblock %}

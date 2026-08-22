@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>MAVIS 角色配置</title>
+<style>
+body { font-family: "Microsoft YaHei", sans-serif; background: #fafafa; color: #222; margin: 0; padding: 24px; }
+.container { max-width: 720px; margin: 0 auto; background: #fff; border: 1px solid #ddd; padding: 28px 36px; }
+h1 { font-size: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; margin-top: 0; }
+h2 { font-size: 15px; margin: 28px 0 10px; color: #333; }
+.section { border: 1px solid #e0e0e0; padding: 16px 20px; margin-bottom: 20px; }
+label { display: block; font-size: 13px; margin: 10px 0 4px; color: #444; }
+input[type=text], input[type=number], select, textarea {
+    width: 100%; padding: 6px 8px; border: 1px solid #bbb; font-size: 13px;
+    box-sizing: border-box; background: #fff; font-family: inherit;
+}
+textarea { height: 60px; resize: vertical; }
+.hint { font-size: 12px; color: #888; margin-top: 2px; }
+.row { display: flex; gap: 16px; }
+.row > div { flex: 1; }
+button { margin-top: 20px; padding: 10px 32px; background: #333; color: #fff;
+    border: none; font-size: 14px; cursor: pointer; }
+button:hover { background: #555; }
+#result { margin-top: 16px; font-size: 13px; white-space: pre-wrap; }
+.error { color: #a00; }
+.ok { color: #070; }
+code { background: #f5f5f5; padding: 1px 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+<nav style="margin-bottom:20px;border-bottom:1px solid #ddd;padding-bottom:10px;font-size:14px;">
+    <a href="/" style="margin-right:20px;color:#333;font-weight:bold;text-decoration:none;">角色配置</a>
+    <a href="/agents" style="color:#666;text-decoration:none;">已配置角色</a>
+</nav>
+<h1>MAVIS 角色配置</h1>
+<p style="font-size:13px;color:#666;">填写角色信息,生成标准 JSON 配置。生成后经框架校验。</p>
+
+<form id="config-form">
+    <div class="section">
+        <h2>一、角色基本信息</h2>
+        <div class="row">
+            <div>
+                <label>业务名称(用于分目录)</label>
+                <input type="text" name="business" value="investment">
+                <div class="hint">如 investment(投资咨询)、medical(医疗)</div>
+            </div>
+            <div>
+                <label>角色类型</label>
+                <select name="role_type">
+                    <option value="user">user(普通用户)</option>
+                    <option value="ai_tool">ai_tool(AI 工具角色)</option>
+                </select>
+                <div class="hint">GTC 演示需至少一个 ai_tool</div>
+            </div>
+        </div>
+        <div class="row">
+            <div>
+                <label>角色名(全场景唯一)</label>
+                <input type="text" name="name" required>
+            </div>
+            <div>
+                <label>所属组织</label>
+                <input type="text" name="organization" placeholder="如:投资咨询中心">
+            </div>
+        </div>
+        <div class="row">
+            <div>
+                <label>初始坐标 X</label>
+                <input type="number" name="coord_x" value="10">
+            </div>
+            <div>
+                <label>初始坐标 Y</label>
+                <input type="number" name="coord_y" value="6">
+            </div>
+            <div>
+                <label>所在区域</label>
+                <select name="living_area">
+                    {% for addr in addresses %}
+                    <option value="{{ addr }}">{{ addr }}</option>
+                    {% endfor %}
+                </select>
+                <div class="hint">睡觉/常驻地点,来自地图</div>
+            </div>
+        </div>
+        <label>当前状态描述</label>
+        <input type="text" name="currently" placeholder="如:正在整理客户资产配置方案">
+    </div>
+
+    <div class="section">
+        <h2>二、职责与权限</h2>
+        <label>岗位</label>
+        <input type="text" name="position" placeholder="如:首席投资顾问">
+        <label>职责(每行一条,或分号分隔)</label>
+        <textarea name="responsibility"></textarea>
+        <label>权限(每行一条,可含"可/不可")</label>
+        <textarea name="authority"></textarea>
+        <label>规则/红线(每行一条)</label>
+        <textarea name="rules"></textarea>
+    </div>
+
+    <div class="section">
+        <h2>三、目标</h2>
+        <label>目标权重(每行"目标:权重",权重总和应为 1)</label>
+        <textarea name="goals" placeholder="收益最大化:0.6&#10;风险规避:0.4"></textarea>
+    </div>
+
+    <div class="section">
+        <h2>四、人设与习惯</h2>
+        <div class="row">
+            <div>
+                <label>年龄</label>
+                <input type="number" name="age" value="35">
+            </div>
+        </div>
+        <label>先天性格</label>
+        <input type="text" name="innate" placeholder="如:谨慎、重视数据、情绪化">
+        <label>后天习得</label>
+        <input type="text" name="learned">
+        <label>生活习惯</label>
+        <input type="text" name="lifestyle">
+        <label>日常计划概述</label>
+        <input type="text" name="daily_plan">
+    </div>
+
+    <button type="submit">生成配置</button>
+    <button type="button" id="clear-draft" style="background:#888;margin-left:12px;">清空草稿</button>
+</form>
+
+<div id="result"></div>
+</div>
+
+<script>
+// ===== 草稿自动保存(刷新/重开不丢失)=====
+var FORM_KEY = "mavis_config_draft";
+function saveDraft() {
+    var form = document.getElementById("config-form");
+    var data = {};
+    new FormData(form).forEach(function(v, k) { data[k] = v; });
+    try { localStorage.setItem(FORM_KEY, JSON.stringify(data)); } catch(e) {}
+}
+function restoreDraft() {
+    try {
+        var raw = localStorage.getItem(FORM_KEY);
+        if (!raw) return;
+        var data = JSON.parse(raw);
+        var form = document.getElementById("config-form");
+        Object.keys(data).forEach(function(k) {
+            var el = form.elements[k];
+            if (el) el.value = data[k];
+        });
+    } catch(e) {}
+}
+function clearDraft() {
+    try { localStorage.removeItem(FORM_KEY); } catch(e) {}
+    document.getElementById("config-form").reset();
+}
+// 输入时自动保存
+document.getElementById("config-form").addEventListener("input", saveDraft);
+// 清空草稿按钮
+document.getElementById("clear-draft").addEventListener("click", function() {
+    clearDraft();
+    document.getElementById("result").textContent = "";
+});
+// 页面加载时恢复草稿
+restoreDraft();
+
+document.getElementById("config-form").addEventListener("submit", async function(e) {
+    e.preventDefault();
+    var form = new FormData(this);
+    var data = {};
+    form.forEach(function(v, k) { data[k] = v; });
+    // 清理角色名:去首尾空白/制表符
+    if (data.name) { data.name = data.name.replace(/^\s+|\s+$/g, "").replace(/[\t\r\n]/g, ""); }
+    var res = document.getElementById("result");
+    res.className = "";
+    res.textContent = "生成中...";
+    try {
+        var resp = await fetch("/api/generate", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(data)
+        });
+        var out = await resp.json();
+        if (out.ok) {
+            res.className = "ok";
+            res.textContent = "已生成并校验通过:\n路径: " + out.path + "\n\n" + JSON.stringify(out.agent, null, 2);
+        } else {
+            res.className = "error";
+            res.textContent = "校验未通过:\n" + out.errors.join("\n");
+        }
+    } catch (err) {
+        res.className = "error";
+        res.textContent = "请求失败: " + err;
+    }
+});
+</script>
+</body>
+</html>

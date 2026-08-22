@@ -25,8 +25,26 @@ from framework.core.schedule import Schedule
 from framework.core.spatial import Spatial
 from framework.core.timer import Timer, daily_duration, to_date
 
-# 对话互斥锁:并行思考时,同一时刻只允许一场对话进行
-chat_lock = threading.Lock()
+# 对话对互斥:同一对角色不同时聊两场,但不同对可并行(支持多线对话)
+# 用一个带锁的"活跃对话对"集合实现,线程安全
+_chat_pairs_lock = threading.Lock()
+_active_chat_pairs = set()  # frozenset({a, b})
+
+
+def _acquire_chat_pair(a: str, b: str) -> bool:
+    """尝试占用对话对(a,b);成功返回 True"""
+    pair = frozenset([a, b])
+    with _chat_pairs_lock:
+        if pair in _active_chat_pairs:
+            return False
+        _active_chat_pairs.add(pair)
+        return True
+
+
+def _release_chat_pair(a: str, b: str) -> None:
+    pair = frozenset([a, b])
+    with _chat_pairs_lock:
+        _active_chat_pairs.discard(pair)
 
 # 对话逐句回调:由外部(如 live 服务)设置,每生成一句话实时推送
 chat_callback = None
@@ -76,6 +94,8 @@ class Agent:
 
         # 业务关系配置(relationships.json 注入):本角色与其他角色的关系列表
         self.relationships: List[dict] = config.get("relationships", [])
+        # 角色类型:user(人)/ ai_tool(AI 工具角色)
+        self.role_type: str = config.get("role_type", "user") or "user"
 
         # prompt
         from framework.prompt import Scratch
@@ -174,7 +194,11 @@ class Agent:
         events = self.move(status["coord"], status.get("path"))
         plan, _ = self.make_schedule()
 
-        if (plan["describe"] == "sleeping" or "睡" in plan["describe"]) and self.is_awake():
+        if (
+            self.role_type != "ai_tool"  # AI 工具角色不睡觉,始终在线
+            and (plan["describe"] == "sleeping" or "睡" in plan["describe"])
+            and self.is_awake()
+        ):
             self.logger.info("{} is going to sleep...".format(self.name))
             address = self.spatial.find_address("睡觉", as_list=True)
             tiles = self.maze.get_address_tiles(address)
@@ -270,6 +294,10 @@ class Agent:
             self.schedule.create = self._timer.get_date()
             wake_up = self.completion("wake_up")
             init_schedule = self.completion("schedule_init", wake_up)
+            # AI 工具角色全天在线:强制无睡觉时段(wake_up=0)
+            if self.role_type == "ai_tool":
+                wake_up = 0
+                init_schedule = ["随时准备与用户交流投资问题"]
             # make daily schedule
             hours = [f"{i}:00" for i in range(24)]
             seed = [(h, "睡觉") for h in hours[:wake_up]]
@@ -570,13 +598,13 @@ class Agent:
         return False
 
     def _chat_with(self, other, focus):
-        # 对话互斥:同一时刻只允许一场对话
-        if not chat_lock.acquire(blocking=False):
+        # 对话对互斥:同一对不同时聊两场,但不同对可并行(支持多线对话)
+        if not _acquire_chat_pair(self.name, other.name):
             return False
         try:
             return self._chat_with_locked(other, focus)
         finally:
-            chat_lock.release()
+            _release_chat_pair(self.name, other.name)
 
     def _chat_with_locked(self, other, focus):
         if len(self.schedule.daily_schedule) < 1 or len(other.schedule.daily_schedule) < 1:
@@ -602,7 +630,11 @@ class Agent:
 
         if not self.completion("decide_chat", self, other, focus, chats):
             # 提高对话频率:即使 LLM 不倾向,也有一定概率继续尝试(可配置)
-            if random.random() < self.chat_retry_prob:
+            # AI 工具角色(自己或对方)概率更高,鼓励与人交流
+            retry_prob = self.chat_retry_prob
+            if self.role_type == "ai_tool" or getattr(other, "role_type", "") == "ai_tool":
+                retry_prob = max(retry_prob, 0.9)
+            if random.random() < retry_prob:
                 return False
 
         self.logger.info("{} decides chat with {}".format(self.name, other.name))
@@ -798,6 +830,9 @@ class Agent:
         return self.action.event if as_act else self.action.obj_event
 
     def is_awake(self):
+        # AI 工具角色始终在线(不睡觉)
+        if self.role_type == "ai_tool":
+            return True
         if not self.action:
             return True
         if self.get_event().fit(self.name, "is", "sleeping"):

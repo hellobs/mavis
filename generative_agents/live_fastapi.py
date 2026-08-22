@@ -92,6 +92,13 @@ def on_agent(name, agent_data, step, sim_time):
     conv_text = {}
     if server is not None and sim_time in server.game.conversation:
         conv_text = conversation_text(server.game.conversation, sim_time)
+    # 读取角色类型(user/ai_tool),供前端控制台标识 AI 工具角色
+    role_type = "user"
+    try:
+        if server is not None and name in server.game.agents:
+            role_type = getattr(server.game.agents[name], "role_type", "user") or "user"
+    except Exception:
+        pass
     msg: AgentState = {
         "type": "agent",
         "name": agent_state["name"],
@@ -101,6 +108,7 @@ def on_agent(name, agent_data, step, sim_time):
         "location": agent_state["location"],
         "currently": agent_data.get("currently", ""),
         "conversation": conv_text,
+        "role_type": role_type,
     }
     if description:
         msg["description"] = description

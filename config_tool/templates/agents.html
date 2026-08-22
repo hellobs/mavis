@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>已配置角色</title>
+<style>
+body { font-family: "Microsoft YaHei", sans-serif; background: #fafafa; color: #222; margin: 0; padding: 24px; }
+.container { max-width: 820px; margin: 0 auto; background: #fff; border: 1px solid #ddd; padding: 28px 36px; }
+h1 { font-size: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; margin-top: 0; }
+nav { margin-bottom: 20px; border-bottom: 1px solid #ddd; padding-bottom: 10px; font-size: 14px; }
+nav a { text-decoration: none; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; padding: 8px; border: 1px solid #ddd; background: #f0f0f0; }
+td { padding: 8px; border: 1px solid #eee; }
+tr.agent-row { cursor: pointer; }
+tr.agent-row:hover { background: #f8f8f8; }
+.detail { display: none; background: #fafafa; padding: 12px 16px; border: 1px solid #e0e0e0; margin: 4px 0 12px; font-size: 13px; }
+.detail h3 { margin: 0 0 8px; font-size: 14px; }
+.detail .field { margin: 4px 0; }
+.detail .label { color: #666; display: inline-block; min-width: 100px; }
+code { background: #f0f0f0; padding: 1px 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+<nav>
+    <a href="/" style="margin-right:20px;color:#666;">角色配置</a>
+    <a href="/agents" style="color:#333;font-weight:bold;">已配置角色</a>
+</nav>
+<h1>已配置角色</h1>
+
+{% if agents %}
+<table>
+    <tr>
+        <th>角色</th>
+        <th>类型</th>
+        <th>岗位</th>
+        <th>当前状态</th>
+        <th>目标</th>
+    </tr>
+    {% for a in agents %}
+    <tr class="agent-row" onclick="toggle('{{ a.name }}')">
+        <td>{{ a.name }}</td>
+        <td>{{ a.role_type }}</td>
+        <td>{{ a.duty.position if a.duty else '' }}</td>
+        <td>{{ a.currently }}</td>
+        <td>
+            {% if a.goals %}{% for k, v in a.goals.items() %}{{ k }}:{{ v }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+        </td>
+    </tr>
+    <tr><td colspan="5" style="padding:0;border:none;">
+        <div class="detail" id="detail-{{ a.name }}">
+            <h3>{{ a.name }} 完整配置</h3>
+            <div class="field"><span class="label">类型</span>{{ a.role_type }}</div>
+            <div class="field"><span class="label">组织</span>{{ a.organization or '' }}</div>
+            <div class="field"><span class="label">坐标</span>{{ a.coord }}</div>
+            <div class="field"><span class="label">当前状态</span>{{ a.currently }}</div>
+            {% if a.duty %}
+            <div class="field"><span class="label">岗位</span>{{ a.duty.position or '' }}</div>
+            <div class="field"><span class="label">职责</span>{{ a.duty.responsibility | join('; ') }}</div>
+            <div class="field"><span class="label">权限</span>{{ a.duty.authority | join('; ') }}</div>
+            <div class="field"><span class="label">规则</span>{{ a.duty.rules | join('; ') }}</div>
+            {% endif %}
+            {% if a.goals %}
+            <div class="field"><span class="label">目标</span>{% for k, v in a.goals.items() %}{{ k }}:{{ v }} {% endfor %}</div>
+            {% endif %}
+            {% if a.scratch %}
+            <div class="field"><span class="label">性格</span>{{ a.scratch.innate or '' }}</div>
+            <div class="field"><span class="label">习得</span>{{ a.scratch.learned or '' }}</div>
+            <div class="field"><span class="label">习惯</span>{{ a.scratch.lifestyle or '' }}</div>
+            <div class="field"><span class="label">日常</span>{{ a.scratch.daily_plan or '' }}</div>
+            {% endif %}
+        </div>
+    </td></tr>
+    {% endfor %}
+</table>
+{% else %}
+<p style="font-size:13px;color:#888;">暂无已配置角色</p>
+{% endif %}
+</div>
+
+<script>
+function toggle(name) {
+    var el = document.getElementById("detail-" + name);
+    if (el) el.style.display = (el.style.display === "none" || el.style.display === "") ? "block" : "none";
+}
+</script>
+</body>
+</html>

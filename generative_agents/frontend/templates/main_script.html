@@ -118,6 +118,7 @@
 		var ts = ("0" + now.getHours()).slice(-2) + ":" + ("0" + now.getMinutes()).slice(-2) + ":" + ("0" + now.getSeconds()).slice(-2);
 		var color = "#ccc";
 		if (cat === "agent") color = "#6cf";
+		else if (cat === "ai") color = "#c6f";
 		else if (cat === "chat") color = "#fc6";
 		else if (cat === "time") color = "#6f6";
 		else if (cat === "event") color = "#f66";
@@ -171,7 +172,8 @@
 		ws.onmessage = function(e) {
 			const msg = JSON.parse(e.data);
 			if (msg.type === "agent") {
-				devLog("agent", msg.name + " → " + (msg.action || "").slice(0, 30) + " @ " + JSON.stringify(msg.coord));
+				var isAI = msg.role_type === "ai_tool";
+				devLog(isAI ? "ai" : "agent", (isAI ? "[AI] " : "") + msg.name + " → " + (msg.action || "").slice(0, 30) + " @ " + JSON.stringify(msg.coord));
 				moveAgent(msg.name, msg.coord, msg.action, msg.location, msg.currently, msg.path);
 				if (msg.conversation) {
 					Object.assign(all_movement["conversation"], msg.conversation);
@@ -183,8 +185,9 @@
 					}
 				}
 			} else if (msg.type === "chat_line") {
-				// 对话逐句实时显示
-				devLog("chat", msg.speaker + ": " + (msg.text || "").slice(0, 40));
+				// 对话逐句实时显示(说话者是 AI 工具角色时标出)
+				var spIsAI = (msg.speaker === "AI投顾助手");
+				devLog(spIsAI ? "ai" : "chat", (spIsAI ? "[AI] " : "") + msg.speaker + ": " + (msg.text || "").slice(0, 40));
 				appendChatLine(msg.speaker, msg.text);
 			} else if (msg.type === "time") {
 				devLog("time", "游戏时间 → " + msg.time);

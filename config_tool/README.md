@@ -12,9 +12,10 @@
 ## 启动
 
 ```bash
-# 依赖 MAVIS 的 uv 环境(fastapi 等)
+# 依赖 MAVIS 的 uv 环境(fastapi 等);激活后直接 python
+# 或指定解释器:Windows .venv-live\Scripts\python.exe / mac·linux .venv-live/bin/python
 cd config_tool
-../generative_agents/.venv-live/Scripts/python.exe app.py
+python app.py
 ```
 
 服务地址:http://127.0.0.1:5002/

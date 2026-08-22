@@ -29,7 +29,7 @@ conda activate generative_agents_cn
 pip install -r requirements.txt
 ```
 
-> 运行时用 `python live_fastapi.py` 即可(有 conda 环境先 `conda activate`;有 uv 环境用 `.venv/Scripts/python.exe`)。
+> 运行时用 `python live_fastapi.py` 即可。先激活环境:conda 用 `conda activate generative_agents_cn`;uv 用 `source .venv/bin/activate`(mac/linux)或 `.venv\Scripts\activate`(Windows)。
 
 ### 2. 配置大模型(二选一)
 
@@ -68,7 +68,9 @@ python live_fastapi.py --name sim-test --start "20250213-09:30" --stride 2 --ste
 
 ```bash
 cd config_tool
-../generative_agents/.venv-live/Scripts/python.exe app.py
+# 使用 generative_agents 的环境(激活后直接 python)
+# 或指定解释器路径:Windows .venv-live\Scripts\python.exe / mac·linux .venv-live/bin/python
+python app.py
 ```
 
 浏览器打开 http://127.0.0.1:5002/

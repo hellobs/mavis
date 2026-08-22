@@ -4,12 +4,12 @@
 
 ## 功能
 
-- 5 个投资场景智能体(投资顾问 / 量化分析 / 行业研究 / 风控 / 散户),由大模型驱动自主决策、移动、对话
-- **自研框架内核 `framework/`**:Agent 完整生命周期(思考/日程/感知/反应/对话/反思)、三因子记忆检索、可插拔存储(纯 stdlib / 向量)、提示词系统,全部零 `modules` 依赖,可独立运行
-- 与传输无关的消息契约(protocol.py),支撑实时流与未来 Unity 客户端对接
-- 实时可视化:FastAPI + WebSocket 边跑边看(框架驱动),对话逐句推送、双向通道支持"人在回路"交互
+- 智能体独立，由大模型驱动自主决策、移动、对话
+- **自研框架内核 `framework/`**:Agent 完整生命周期(思考/日程/感知/反应/对话/反思)、三因子记忆检索、可插拔存储(纯 stdlib / 向量)、提示词系统
+- 消息契约(protocol.py),支撑实时流与客户端对接
+- 提供一种实时可视化方式:FastAPI + WebSocket 边跑边看(框架驱动),对话逐句推送
 - 决策导出:模拟过程自动生成 decisions.json(时间/角色/动作/涉他/重要性),供决策平台与专家界面
-- 支持 DeepSeek API 与本地 Ollama 两种大模型后端
+- 支持 API 与本地 Ollama
 
 ## 快速开始
 
@@ -100,11 +100,11 @@ generative_agents/
 
 ## 修改地图
 
-由于wounderland项目原作者没有提供maze.json的生成代码，所以想要创建新地图，有以下几种方案：
+创建新地图，有以下几种方案：
 
 1. 参考原始generative_agents项目中maze.py的逻辑，修改现有代码，以便兼容tiled编辑器导出的json和csv数据文件；
 2. 参考现有的maze.json格式，编写代码用于合并tiled编辑器导出的maze_meta_info.json、collision_maze.csv、sector_maze.csv等文件，为新地图生成maze.json。
-3. `jiejieje`已为本项目开发了一款地图标注工具，项目地址：https://github.com/jiejieje/tiled_to_maze.json
+3. `jiejieje`开发了一款地图标注工具: https://github.com/jiejieje/tiled_to_maze.json
 
 ## 参考资料
 

@@ -183,6 +183,8 @@ document.getElementById("config-form").addEventListener("submit", async function
         });
         var out = await resp.json();
         if (out.ok) {
+            // 成功提交后清除草稿,避免下次误用旧内容
+            clearDraft();
             res.className = "ok";
             res.textContent = "已生成并校验通过:\n路径: " + out.path + "\n\n" + JSON.stringify(out.agent, null, 2);
         } else {

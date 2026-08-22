@@ -62,6 +62,24 @@ python live_fastapi.py --name sim-test --start "20250213-09:30" --stride 2 --ste
 
 浏览器打开 http://127.0.0.1:5001/
 
+### 4. 角色配置工具(填表单生成角色)
+
+用网页表单配置角色(人设/职责/权限/目标),自动生成 JSON 并校验,免手写配置文件:
+
+```bash
+cd config_tool
+../generative_agents/.venv-live/Scripts/python.exe app.py
+```
+
+浏览器打开 http://127.0.0.1:5002/
+
+- `/` — 角色配置表单:填写角色信息,生成标准 JSON(自动校验,成功后清除草稿)
+- `/agents` — 已配置角色列表:查看所有角色完整配置
+- 生成的角色自动写入 `generative_agents/frontend/static/assets/village/agents/`,贴图从 `agents_pool/`(25 人贴图池)按角色名哈希映射
+- 详见 `config_tool/README.md`
+
+> 新增角色后,重启仿真服务器(5001)即可让新角色进入模拟。
+
 ## 常用参数
 
 | 参数 | 说明 |
@@ -85,9 +103,11 @@ generative_agents/
 │   ├── output/         #   决策导出(decisions.json)
 │   └── config/         #   场景配置加载 + 模拟配置(新开/续跑)
 ├── scenarios/          # 业务场景配置(investment: 人物关系/剧情事件)
-├── frontend/           # 可视化前端(Phaser)
+├── frontend/           # 可视化前端(Phaser + 贴图池 agents_pool/)
 ├── data/               # 配置与提示词
 └── results/            # 存档与回放数据
+
+config_tool/            # ★ 角色配置工具(独立服务,填表单生成角色 JSON)
 ```
 
 ## 说明

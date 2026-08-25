@@ -14,6 +14,16 @@ dependencies = [
     "requests>=2.31",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
+
 # 标准布局:包在 mavisframework/ 子目录
 [tool.setuptools]
 packages = [

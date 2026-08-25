@@ -6,6 +6,19 @@
 
 框架层保持零渲染依赖(不嵌入 Phaser / Unity / Flask 等前端或服务端框架),前端仅作为协议消息的消费端。
 
+## 📚 文档
+
+从零开始学习 mavisframework(带可运行示例):
+
+| 教程 | 内容 |
+|---|---|
+| [配置加载与校验](docs/tutorial-config.md) | 角色/场景配置、load_config、validate_all |
+| [运行时:Game 与 Simulator](docs/tutorial-game.md) | 创建角色、接入 LLM、跑一步模拟 |
+| [消息协议](docs/tutorial-protocol.md) | agent/time/chat_line 等契约、validate_message |
+| [决策导出](docs/tutorial-decisions.md) | 模拟结果 → 决策事件流(供治理平台) |
+
+英文版见 [docs/ 目录](docs/)(`*-en.md`)。
+
 ## 1. 安装
 
 mavisframework 是标准 Python 包(pyproject.toml + setuptools),Python ≥ 3.12。

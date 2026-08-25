@@ -11,6 +11,19 @@ The framework layer has zero rendering dependencies (it does not embed
 Phaser, Unity, Flask or any frontend/server framework); frontends act purely
 as consumers of protocol messages.
 
+## 📚 Documentation
+
+Learn mavisframework from scratch (with runnable examples):
+
+| Tutorial | Content |
+|---|---|
+| [Config Loading & Validation](docs/tutorial-config-en.md) | role/scenario config, load_config, validate_all |
+| [Runtime: Game & Simulator](docs/tutorial-game-en.md) | create agents, plug in LLM, run a step |
+| [Message Protocol](docs/tutorial-protocol-en.md) | agent/time/chat_line contract, validate_message |
+| [Decision Export](docs/tutorial-decisions-en.md) | simulation → decision event stream (for governance) |
+
+Chinese versions in the [docs/ directory](docs/).
+
 ## 1. Installation
 
 mavisframework is a standard Python package (pyproject.toml + setuptools),

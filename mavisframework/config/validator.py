@@ -155,8 +155,10 @@ def validate_story(story: List[dict], agent_names: set) -> List[str]:
         if "time" in ev:
             import re
 
-            if not re.match(r"^\d{2}:\d{2}$", str(ev["time"])):
-                errors.append(f"{prefix}.time 格式应为 HH:MM,得到 '{ev['time']}'")
+            if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", str(ev["time"])):
+                errors.append(
+                    f"{prefix}.time 格式应为 HH:MM(00:00-23:59),得到 '{ev['time']}'"
+                )
         targets = ev.get("targets", [])
         if targets and targets != ["all"] and isinstance(targets, list):
             for t in targets:

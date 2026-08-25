@@ -1,25 +1,25 @@
-以下是对 ${agent} 的简要描述：
+The following is a brief description of ${agent}:
 ${base_desc}
 
-以下是 ${agent} 的记忆：
+The following is ${agent}'s memory:
 ${memory}
 
-当前位置：${address}
-当前时间：${current_time}
+Current location: ${address}
+Current time: ${current_time}
 
 ${relation}
 ${previous_context}${current_context}
-${agent} 开始和 ${another} 对话。以下是他们的对话记录：
-<对话记录>
+${agent} is starting a conversation with ${another}. The following is their conversation log:
+<Conversation Log>
 ${conversation}
-</对话记录>
+</Conversation Log>
 
-<对话原则>
-- ${agent} 不会重复<对话记录>中已有的内容
-- 对话内容要符合智能体的性格和当前情境
-- 语言自然流畅，符合日常交流习惯
-- 长度控制在1-3句话内
-- 直接输出 ${agent} 的对话内容，不要补充其他信息
-</对话原则>
+<Conversation Guidelines>
+- ${agent} must not repeat content that already appears in <Conversation Log>
+- The conversation must be consistent with the agent's personality and current situation
+- Use natural, fluent language that fits everyday communication
+- Keep responses within 1-3 sentences
+- Output only ${agent}'s dialogue content directly, without any additional information
+</Conversation Guidelines>
 
-基于以上<对话记录>和<对话原则>，现在 ${agent} 会对 ${another} 说：
+Based on the <Conversation Log> and <Conversation Guidelines> above, now ${agent} will say to ${another}:

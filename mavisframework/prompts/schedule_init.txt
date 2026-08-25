@@ -1,25 +1,25 @@
-请根据以下信息生成一个初始日程列表：
+Please generate an initial schedule list based on the following information:
 
 """
 ${base_desc}
-生活方式：${lifestyle}
-智能体：${agent}
-起床时间：${wake_up}点
+Lifestyle: ${lifestyle}
+Agent: ${agent}
+Wake-up time: ${wake_up} o'clock
 """
 
-确保返回的数据格式遵守schema：
-示例：
+Make sure the returned data format conforms to the schema:
+Example:
 [
-  "早上6点起床并完成早餐的例行工作",
-  "早上7点吃早餐",
-  "早上8点看书",
-  "中午12点吃午饭",
-  "下午1点小睡一会儿",
-  "晚上7点放松一下，看电视",
-  "晚上11点睡觉"
+  "Wake up at 6 AM and complete the morning routine",
+  "Eat breakfast at 7 AM",
+  "Read a book at 8 AM",
+  "Have lunch at 12 PM",
+  "Take a nap at 1 PM",
+  "Relax and watch TV at 7 PM",
+  "Go to sleep at 11 PM"
 ]
 
-要求：
-- 每个活动简洁明了
-- 按时间顺序排列
-- 确保返回的数据格式遵守schema
+Requirements:
+- Each activity should be concise and clear
+- Arrange in chronological order
+- Make sure the returned data format conforms to the schema

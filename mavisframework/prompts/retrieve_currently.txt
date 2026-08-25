@@ -1,10 +1,10 @@
-${agent} 在 ${time} 的状态：
+${agent}'s status at ${time}:
 ${currently}
 
-${agent} 在 ${time} 结束时记得这些事情：
+Things ${agent} remembers at the end of ${time}:
 ${plan}
 
-${agent} 在 ${time} 结束时的想法和感受：
+${agent}'s thoughts and feelings at the end of ${time}:
 ${thought}
 
-现在是 ${current_time}。根据上述情况，以第三人称，用一句话描述 ${agent} 在 ${current_time} 的状态，以反映 ${agent} 在 ${time} 结束时的想法和感受。
+It is now ${current_time}. Based on the above, describe ${agent}'s status at ${current_time} in the third person in a single sentence, reflecting ${agent}'s thoughts and feelings at the end of ${time}.

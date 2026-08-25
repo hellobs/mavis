@@ -33,16 +33,37 @@ python app.py
 
 > 「配置角色」的字段清单(含填入类型、必填标记、可选范围)见独立文档:**[角色字段清单.md](角色字段清单.md)**,供陈总/字段提供方使用,不含技术细节。
 
-## 生成结果
+## 生成结果(产物在哪)
 
-- 写入平台资源目录 `../provenance/provenance/frontend/static/assets/village/agents/<角色名>/agent.json`
+填表提交后,产物自动写入**平台(Provenance)仓库**的对应目录:
+
+| 填什么 | 产物 | 落盘位置(相对平台仓库) |
+|---|---|---|
+| 角色 | `agent.json` + `portrait.png` + `texture.png` | `frontend/static/assets/village/agents/<角色名>/` |
+| 关系 | `relationships.json`(追加) | `scenarios/<business>/relationships.json` |
+| 剧情 | `story.json`(追加) | `scenarios/<business>/story.json` |
+
+在本机(仓库并列布局)的具体路径:
+
+```
+D:\zzr\provenance\provenance\frontend\static\assets\village\agents\<角色名>\agent.json
+D:\zzr\provenance\provenance\scenarios\investment\relationships.json
+D:\zzr\provenance\provenance\scenarios\investment\story.json
+```
+
+**路径探测规则**:config_tool 启动时自动探测兄弟目录 `../provenance`(平台仓库),
+优先找含 `frontend/` 的子目录(当前为 `../provenance/provenance/`);找不到时回退仓库根。
+部署时可用环境变量显式指定:
+
+- `MAVIS_ASSETS_ROOT` — 平台前端资源根(`frontend/static/assets/village`)
+- `MAVIS_SCENARIOS_DIR` — 平台场景目录(`scenarios`)
+
+**角色产物附加处理**:
 - 自动补 `portrait` 字段,并从贴图池(`agents_pool/`,25 人历史贴图)按角色名哈希映射贴图
 - agent.json 记录 `texture_ref`(贴图来源,供 Unity 端同样处理)
 
-> 产物路径默认指向兄弟目录 `../provenance`(本地开发时 mavis 与 provenance 仓库并列);
-> 部署时用环境变量覆盖:
-> - `MAVIS_ASSETS_ROOT` — 平台前端资源根(`frontend/static/assets/village`)
-> - `MAVIS_SCENARIOS_DIR` — 平台场景目录(`scenarios`)
+> 提示:提交角色后,重启仿真服务(5001)即可让新角色进入模拟;
+> 刷新 http://127.0.0.1:5001 可在画面中看到新角色。
 
 ## API
 

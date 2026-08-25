@@ -1,15 +1,15 @@
-在区域选项中，为当前任务选择一个合适的区域。
+Choose an appropriate sector for the current task from the sector options.
 
-${agent} 住在 <${live_sector}>，里面有 ${live_arenas}。
-${agent} 目前的位置是 <${current_sector}>，里面有 ${current_arenas}。
+${agent} lives in <${live_sector}>, which contains ${live_arenas}.
+${agent}'s current location is <${current_sector}>, which contains ${current_arenas}.
 ${daily_plan}
-问题：
-${agent} 正在 ${complete_plan}。为了 ${decomposed_plan}，${agent} 应该去哪里？
+Question:
+${agent} is currently ${complete_plan}. To ${decomposed_plan}, where should ${agent} go?
 
-要求：
-1. 必须在这个列表中选择一个区域，列表：[${areas}]。
-2. 如果现在正位于列表中的区域，并且计划的活动可以在这里进行，最好留在当前区域。
-3. 不要选择列表以外的区域。
-4. 直接输出选中的结果。
+Requirements:
+1. You must choose a sector from this list: [${areas}].
+2. If currently located in one of the listed sectors and the planned activity can be carried out there, prefer to stay in the current sector.
+3. Do not choose a sector outside the list.
+4. Output the selected sector directly.
 
-${agent} 应该去：
+${agent} should go to:

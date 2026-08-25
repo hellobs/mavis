@@ -1,10 +1,10 @@
-从选项列表中，为当前活动选择最相关的对象。
+Select the most relevant object from the list of options for the current activity.
 
-当前活动：${activity}
+Current activity: ${activity}
 
-要求：
-1. 必须在这个列表中选择一个对象：[${objects}]。
-2. 不要选择列表以外的对象。
-3. 直接输出选中的结果。
+Requirements:
+1. You must select one object from this list: [${objects}].
+2. Do not select an object outside the list.
+3. Output the selected result directly.
 
-与当前活动最相关的对象是：
+The object most relevant to the current activity is:

@@ -1,6 +1,6 @@
-对话：
+Dialogue:
 """
 ${conversation}
 """
 
-用不超过100字的短句总结上述对话：
+Summarize the above dialogue in a short sentence of no more than 100 characters:

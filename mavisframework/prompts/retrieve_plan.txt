@@ -1,40 +1,40 @@
-根据给定的记忆节点，生成智能体的计划描述。
+Generate a plan description for the agent based on the given memory nodes.
 
-示例：
+Example:
 """
-记忆节点：
-2023-12-15 08:00: 凯莉在厨房做早餐
-2023-12-15 09:00: 凯莉计划今天去超市购物
-2023-12-15 14:00: 凯莉昨天和朋友聊天很愉快
+Memory nodes:
+2023-12-15 08:00: Kelly was making breakfast in the kitchen
+2023-12-15 09:00: Kelly plans to go grocery shopping today
+2023-12-15 14:00: Kelly had a pleasant chat with friends yesterday
 
-生成5个计划描述：
+Generate 5 plan descriptions:
 
 [
-  "凯莉今天早上准备了营养早餐",
-  "凯莉计划去超市购买生活用品",
-  "凯莉重视与朋友的社交关系",
-  "凯莉的生活很有规律",
-  "凯莉注重健康饮食"
+  "Kelly prepared a nutritious breakfast this morning",
+  "Kelly plans to go shopping for daily necessities",
+  "Kelly values her social relationships with friends",
+  "Kelly lives a well-regulated life",
+  "Kelly pays attention to a healthy diet"
 ]
 
-参考示例，为以下记忆节点生成计划描述：
+Refer to the example above and generate plan descriptions for the following memory nodes:
 """
-记忆节点：
+Memory nodes:
 ${description}
 
-智能体：${agent}
-当前日期：${date}
+Agent: ${agent}
+Current date: ${date}
 """
 
-确保返回的数据格式遵守schema：
+Make sure the returned data follows the schema:
 [
-  "计划描述1",
-  "计划描述2",
-  "计划描述3",
+  "plan description 1",
+  "plan description 2",
+  "plan description 3",
   ...
 ]
 
-要求：
-- 计划描述要基于给定的记忆节点
-- 描述要简洁明了，符合智能体的生活习惯
-- 确保返回的数据格式遵守schema
+Requirements:
+- Plan descriptions must be based on the given memory nodes
+- Descriptions should be concise and consistent with the agent's daily habits
+- Ensure the returned data format complies with the schema

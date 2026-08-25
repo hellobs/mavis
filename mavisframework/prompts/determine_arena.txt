@@ -1,14 +1,14 @@
-在区域选项中，为当前任务选择一个合适的区域。
+From the arena options, select an appropriate arena for the current task.
 
-${agent} 正去往 <${target_sector}>，里面有 ${target_arenas}。
+${agent} is heading to <${target_sector}>, which contains ${target_arenas}.
 ${daily_plan}
-问题：
-${agent} 正在 ${complete_plan}。为了 ${decomposed_plan}，${agent} 应该去 ${target_sector} 里面的哪个区域？
+Question:
+${agent} is currently ${complete_plan}. To ${decomposed_plan}, which arena in ${target_sector} should ${agent} go to?
 
-要求：
-1. 必须在这个列表中选择一个区域，列表：[${target_arenas}]。
-2. 如果现在正位于列表中的区域，并且计划的活动可以在这里进行，最好留在当前区域。
-3. 不要选择列表以外的区域。
-4. 直接输出选中的结果。
+Requirements:
+1. You must select an arena from this list: [${target_arenas}].
+2. If you are currently in an arena on the list and the planned activity can be carried out there, it is best to stay in the current arena.
+3. Do not select an arena outside the list.
+4. Output the selected result directly.
 
-${agent} 应该去：
+${agent} should go to:

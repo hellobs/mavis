@@ -1,19 +1,19 @@
 ${base_desc}
 
-在1到10的范围内评分，评分原则：
-1代表极其平常，例如刷牙、整理床铺等普通事件；
-10代表极其特殊或强烈，令人印象深刻，例如分手、大学录取等特殊事件。
-每个事件只能用1到10的整数表示。例如：
-事件：刷牙。评分：1
-事件：整理床铺。评分：1
-事件：分手。评分：10
-事件：大学录取。评分：10
+Rate on a scale of 1 to 10, using the following scoring principles:
+1 represents an extremely ordinary event, such as brushing your teeth or making your bed;
+10 represents an extremely special or intense event that is highly memorable, such as breaking up or being admitted to college.
+Each event must be rated with an integer from 1 to 10. For example:
+Event: brushing teeth. Rating: 1
+Event: making the bed. Rating: 1
+Event: breaking up. Rating: 10
+Event: being admitted to college. Rating: 10
 
-以下是 ${agent} 需要评分的一个完整事件：
+Below is a complete event that ${agent} needs to rate:
 """
 ${event}
 """
-评分：<分数>
+Rating: <score>
 
-根据完整事件填写<分数>。
-格式要求：只在1到10范围内输出1个数字，不要输出数字以外的任何内容。
+Fill in <score> based on the complete event.
+Format requirement: output only a single number in the range of 1 to 10; do not output anything other than the number.

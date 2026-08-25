@@ -1,39 +1,39 @@
-根据给定的记忆节点，生成反思的焦点问题。
+Generate reflection focus questions based on the given memory nodes.
 
-示例：
+Example:
 """
-记忆节点：
-1. 凯莉在厨房做早餐
-2. 凯莉计划今天去超市购物
-3. 凯莉昨天和朋友聊天很愉快
+Memory nodes:
+1. Kelly is making breakfast in the kitchen
+2. Kelly plans to go grocery shopping today
+3. Kelly enjoyed chatting with friends yesterday
 
-生成3个反思焦点问题：
+Generate 3 reflection focus questions:
 """
 
-确保返回的数据格式遵守schema：
+Make sure the returned data follows the schema:
 [
-  "凯莉今天的生活重点是什么？",
-  "凯莉最近的社交活动如何？", 
-  "凯莉的日常习惯有什么变化？"
+  "What is the focus of Kelly's life today?",
+  "How have Kelly's recent social activities been?",
+  "What changes are there in Kelly's daily habits?"
 ]
 
-参考示例，为以下记忆节点生成反思焦点问题：
+Following the example, generate reflection focus questions for the memory nodes below:
 """
-记忆节点：
+Memory nodes:
 ${reference}
 
-生成${number}个反思焦点问题：
+Generate ${number} reflection focus questions:
 """
 
-确保返回的数据格式遵守schema：
+Make sure the returned data follows the schema:
 [
-  "焦点问题1",
-  "焦点问题2",
-  "焦点问题3",
+  "Focus question 1",
+  "Focus question 2",
+  "Focus question 3",
   ...
 ]
 
-要求：
-- 问题要基于给定的记忆节点
-- 问题要简洁明了，便于引导反思
-- 确保遵守返回的格式schema
+Requirements:
+- Questions should be based on the given memory nodes
+- Questions should be concise and clear, easy to guide reflection
+- Make sure to follow the returned format schema

@@ -1,17 +1,17 @@
 ${base_desc}
 
-在1到10的范围内评分，评分原则：
-1代表极其平常，例如早上的日常问候；
-10代表极其特殊或强烈，令人印象深刻，例如关于分手、争吵的对话。
-每个对话只能用1到10的整数表示。例如：
-对话：早上的日常问候。评分：1
-对话：关于分手、争吵的对话。评分：10
+Rate on a scale of 1 to 10, using the following criteria:
+1 means extremely ordinary, such as a routine morning greeting;
+10 means extremely special or intense and memorable, such as a conversation about a breakup or an argument.
+Each conversation must be rated with an integer from 1 to 10 only. For example:
+Conversation: a routine morning greeting. Rating: 1
+Conversation: a conversation about a breakup or an argument. Rating: 10
 
-以下是 ${agent} 需要评分的一场完整对话：
+Below is the complete conversation that ${agent} needs to rate:
 """
 ${event}
 """
-评分：<分数>
+Rating: <score>
 
-根据完整事件填写<分数>。
-格式要求：只在1到10范围内输出1个数字，不要输出数字以外的任何内容。
+Fill in <score> based on the complete event.
+Format requirements: output only a single number in the range of 1 to 10, and nothing other than that number.

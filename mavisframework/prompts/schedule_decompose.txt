@@ -1,35 +1,35 @@
-示例：
+Example:
 """
-姓名：凯莉
-年龄：35岁
-日常计划：凯莉计划上午上课，下午在家工作
-凯莉是一名幼儿园教师。她在家里制定课程计划。她目前独自住在一套单卧室公寓里。
+Name: Kelly
+Age: 35
+Daily schedule: Kelly plans to attend classes in the morning and work from home in the afternoon.
+Kelly is a kindergarten teacher. She prepares lesson plans at home. She currently lives alone in a one-bedroom apartment.
 
-凯莉的计划是：08:00 至 09:00，凯莉计划吃早餐；09:00 至 10:00，凯莉计划制定第二天的幼儿园课程。
+Kelly's schedule is: from 08:00 to 09:00, Kelly plans to have breakfast; from 09:00 to 10:00, Kelly plans to prepare the next day's kindergarten lesson.
 
-以5分钟为增量，列出凯丽在 9:00 至 10:00 期间的所有子任务（总时长为60分钟）：
+In 5-minute increments, list all of Kelly's subtasks between 9:00 and 10:00 (total duration: 60 minutes):
 [
-  ("审查幼儿园课程标准", 15),
-  ("为这节课集思广益", 10),
-  ("制定课程计划", 20),
-  ("打印教案", 10),
-  ("把教案放进包里", 5)
+  ("Review kindergarten curriculum standards", 15),
+  ("Brainstorm ideas for the lesson", 10),
+  ("Create the lesson plan", 20),
+  ("Print the teaching materials", 10),
+  ("Pack the materials into the bag", 5)
 ]
 """
 
-确保返回的数据格式遵守schema：
+Make sure the returned data format conforms to the schema:
 
-参考示例，为以下计划列出子任务。
+Referring to the example, list the subtasks for the following schedule.
 """
 ${base_desc}
-${agent} 现在的计划是：${plan}
+${agent}'s current schedule is: ${plan}
 """
 
-子任务总数不超过10个，确保返回的数据格式遵守schema：
+The total number of subtasks must not exceed 10; make sure the returned data format conforms to the schema:
 [
-  ("活动描述", 时长分钟数),
-  ("活动描述", 时长分钟数),
+  ("Activity description", duration in minutes),
+  ("Activity description", duration in minutes),
   ...
 ]
 
-以 ${increment} 分钟为增量，列出 ${agent} 在 ${start} 至 ${end} 期间的所有子任务（总时长为60分钟）：
+In ${increment}-minute increments, list all of ${agent}'s subtasks between ${start} and ${end} (total duration: 60 minutes):

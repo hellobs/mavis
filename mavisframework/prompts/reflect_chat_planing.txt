@@ -1,6 +1,6 @@
-对话记录：
+Conversation record:
 """
 ${conversation}
 """
 
-根据以上对话记录，以 ${agent} 的视角，用一句话描述 ${agent} 是否需要记住自己的计划。
+Based on the conversation record above, from ${agent}'s perspective, describe in one sentence whether ${agent} needs to remember its plan.

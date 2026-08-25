@@ -1,41 +1,41 @@
-根据给定的记忆节点，生成反思洞察。
+Based on the given memory nodes, generate reflection insights.
 
-示例：
+Example:
 """
-记忆节点：
-1. 凯莉在厨房做早餐
-2. 凯莉计划今天去超市购物
-3. 凯莉昨天和朋友聊天很愉快
+Memory nodes:
+1. Kelly is cooking breakfast in the kitchen
+2. Kelly plans to go grocery shopping today
+3. Kelly had a pleasant chat with friends yesterday
 
-生成5个反思洞察：
+Generate 5 reflection insights:
 """
 
-确保返回的数据格式遵守schema：
+Ensure that the returned data format follows the schema:
 [
-  ("凯莉注重健康饮食，每天都会准备营养早餐", "1"),
-  ("凯莉有良好的购物计划习惯", "2"),
-  ("凯莉重视社交关系，经常与朋友保持联系", "3"),
-  ("凯莉的生活很有规律，注重工作与生活的平衡", "1,2"),
-  ("凯莉是一个有条理的人，善于安排时间", "1,2,3")
+  ("Kelly pays attention to a healthy diet and prepares a nutritious breakfast every day", "1"),
+  ("Kelly has good shopping planning habits", "2"),
+  ("Kelly values social relationships and keeps in touch with friends regularly", "3"),
+  ("Kelly's life is well-structured and she values the balance between work and life", "1,2"),
+  ("Kelly is an organized person who is good at managing her time", "1,2,3")
 ]
 
-参考示例，为以下记忆节点生成反思洞察：
+Following the example above, generate reflection insights for the following memory nodes:
 """
-记忆节点：
+Memory nodes:
 ${reference}
 
-生成${number}个反思洞察：
+Generate ${number} reflection insights:
 """
 
-确保返回的数据格式遵守schema：
+Ensure that the returned data format follows the schema:
 [
-  ("洞察内容", "相关节点编号"),
-  ("洞察内容", "相关节点编号"),
+  ("insight content", "related node numbers"),
+  ("insight content", "related node numbers"),
   ...
 ]
 
-要求：
-- 洞察要基于给定的记忆节点
-- 洞察要深刻且有启发性
-- 节点编号用逗号分隔，如"1,2,3"
-- 确保返回的数据格式遵守schema
+Requirements:
+- Insights must be based on the given memory nodes
+- Insights must be insightful and thought-provoking
+- Node numbers should be separated by commas, e.g., "1,2,3"
+- Ensure that the returned data format follows the schema

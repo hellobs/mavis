@@ -1,38 +1,38 @@
-请根据以下信息生成详细的24小时日程表：
+Please generate a detailed 24-hour schedule based on the following information:
 
 """
 ${base_desc}
-智能体：${agent}
-初始日程：${daily_schedule}
-时间模板：
+Agent: ${agent}
+Initial Schedule: ${daily_schedule}
+Time Template:
 ${hourly_schedule}
 """
 
-确保返回的数据格式遵守schema：
-示例：
+Ensure the returned data format follows the schema:
+Example:
 {
-  "6:00": "起床并完成早晨的例行工作",
-  "7:00": "吃早餐",
-  "8:00": "读书",
-  "9:00": "读书",
-  "10:00": "读书",
-  "11:00": "读书",
-  "12:00": "吃午饭",
-  "13:00": "小睡一会儿",
-  "14:00": "小睡一会儿",
-  "15:00": "小睡一会儿",
-  "16:00": "继续工作",
-  "17:00": "继续工作",
-  "18:00": "回家",
-  "19:00": "放松，看电视",
-  "20:00": "放松，看电视",
-  "21:00": "睡前看书",
-  "22:00": "准备睡觉",
-  "23:00": "睡觉"
+  "6:00": "Wake up and complete the morning routine",
+  "7:00": "Eat breakfast",
+  "8:00": "Read a book",
+  "9:00": "Read a book",
+  "10:00": "Read a book",
+  "11:00": "Read a book",
+  "12:00": "Eat lunch",
+  "13:00": "Take a nap",
+  "14:00": "Take a nap",
+  "15:00": "Take a nap",
+  "16:00": "Continue working",
+  "17:00": "Continue working",
+  "18:00": "Go home",
+  "19:00": "Relax and watch TV",
+  "20:00": "Relax and watch TV",
+  "21:00": "Read before bed",
+  "22:00": "Get ready for sleep",
+  "23:00": "Sleep"
 }
 
-要求：
-- 为每个小时填写具体活动
-- 活动描述要具体且符合人物设定
-- 至少包含5个不同的活动类型
-- 确保返回的数据格式遵守schema
+Requirements:
+- Fill in a specific activity for each hour
+- Activity descriptions should be specific and consistent with the character's persona
+- Include at least 5 different activity types
+- Ensure the returned data format follows the schema

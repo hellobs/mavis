@@ -10,14 +10,19 @@ Agent 在空间里生活、记忆、反思、决策、交互,每一步可配置�
 ## 安装(uv 推荐)
 
 ```bash
-# 本地开发:克隆仓库后可编辑安装
+# 方式 A:从源码构建 wheel 并安装(推荐,已验证稳定)
+uv build
+uv pip install dist/mavisframework-1.0.0-py3-none-any.whl
+
+# 方式 B:可编辑安装(开发框架时改代码即时生效)
 uv venv --python 3.12
 uv pip install -e .
-
-# 或直接从源码构建 wheel / sdist
-uv build
 ```
 
+> ⚠️ **已知问题**:当前环境下 editable 安装(`-e`)存在 import 怪癖——顶层 `mavisframework`
+> 可导入,但切换工作目录后嵌套子模块(如 `mavisframework.config.loader`)可能解析失败。
+> 生产/平台集成请用方式 A(wheel 安装)。
+>
 > 依赖仅 `pydantic>=2.0`、`requests>=2.31`(无任何 AI/渲染框架硬依赖);
 > Python ≥ 3.12。LLM 通过可插拔 Provider(Ollama/OpenAI)接入,不强制。
 
@@ -67,7 +72,7 @@ mavisframework/
 ```
 scenarios/          业务层(换业务=改配置):角色/场景/关系/剧情
    ↓ 加载
-framework/          框架层(纯逻辑,零渲染)
+mavisframework/     框架层(纯逻辑,零渲染)
    ↓ 产出
 runtime/protocol.py 消息协议(agent/time/chat_line/decision...)
    ↓ 消费
@@ -91,8 +96,10 @@ frontend/unity      前端壳(将来,WebSocket 消费同一协议)
 ## 使用方式(1 条路线)
 
 ### 框架驱动 ✅ 已落地
-`live_fastapi.py` 即框架路线——框架 `Game` + `Simulator` + `LiveCompressor` 驱动完整模拟(并行思考/存档/决策导出/WebSocket 推送),项目已无 `modules/` 旧实现,全部逻辑在框架内。投资场景 5 角色从零跑通验证。
+框架 `Game` + `Simulator` + `LiveCompressor` 驱动完整模拟(并行思考/存档/决策导出/WebSocket 推送),项目已无 `modules/` 旧实现,全部逻辑在框架内。投资场景 5 角色从零跑通验证。
 
+> 完整演示平台见 [Provenance](https://github.com/hellobs/provenance):实时服务
+> `live_fastapi.py` 即框架路线的参考实现(FastAPI + WebSocket 消费框架契约消息)。
 > 旧实现(start.py/live.py/compress.py/replay.py + modules/)已移除,可在 git 历史回退。
 
 ## Unity 迁移(框架视角)
@@ -110,7 +117,7 @@ frontend/unity      前端壳(将来,WebSocket 消费同一协议)
 
 - ✅ 已完成:protocol / core(event,memory,agent_core) / scene(maze) / runtime(llm,simulator) / output(decisions) / config(loader) / scenarios(investment 示例)
 - ✅ 框架独立运行:Agent 完整生命周期(思考/日程/感知/反应/对话/反思)、记忆存储(SimpleStore 纯 stdlib / LlamaIndexStore 向量可选)、提示词系统全部迁入 framework,不依赖 modules
-- ✅ 实时服务:live_fastapi.py 由框架 Game + Simulator 驱动(FastAPI + WebSocket),决策导出(decisions.json)接入管线
+- ✅ 平台消费:Provenance 平台的实时服务(live_fastapi.py)由框架 Game + Simulator 驱动(FastAPI + WebSocket),决策导出(decisions.json)接入管线
 - ⏳ 后续:业务层配置生效(关系注入/剧情注入)、Unity 前端
 
 ## 仓库结构

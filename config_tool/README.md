@@ -35,9 +35,14 @@ python app.py
 
 ## 生成结果
 
-- 写入 `provenance/frontend/static/assets/village/agents/<角色名>/agent.json`
+- 写入平台资源目录 `../provenance/provenance/frontend/static/assets/village/agents/<角色名>/agent.json`
 - 自动补 `portrait` 字段,并从贴图池(`agents_pool/`,25 人历史贴图)按角色名哈希映射贴图
 - agent.json 记录 `texture_ref`(贴图来源,供 Unity 端同样处理)
+
+> 产物路径默认指向兄弟目录 `../provenance`(本地开发时 mavis 与 provenance 仓库并列);
+> 部署时用环境变量覆盖:
+> - `MAVIS_ASSETS_ROOT` — 平台前端资源根(`frontend/static/assets/village`)
+> - `MAVIS_SCENARIOS_DIR` — 平台场景目录(`scenarios`)
 
 ## API
 
@@ -53,7 +58,7 @@ python app.py
 
 ## 配置校验
 
-生成/升级都会调用 MAVIS 的 `framework.config.validator`,校验:
+生成/升级都会调用 MAVIS 的 `mavisframework.config.validator`,校验:
 - 语法(必填字段/类型)
 - 地图一致性(coord 范围、spatial 地址存在于地图)
 - 角色交叉(relationships/story 引用存在)

@@ -37,10 +37,22 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 # 路径注入(config_tool 属框架,但产物写入平台的前端资源)
 # MAVIS_ASSETS_ROOT   : 平台前端资源根(frontend/static/assets/village)
 # MAVIS_SCENARIOS_DIR : 业务场景目录(scenarios)
-# 默认指向兄弟目录 ../provenance(本地开发时 mavis 与 provenance 并列);
-# 部署时通过环境变量指向平台仓库对应目录。
+# 默认探测兄弟目录 ../provenance(平台仓库):
+#   优先 ../provenance/provenance(平台代码在仓库子目录),回退 ../provenance(代码在根);
+# 部署时可通过环境变量显式指向平台仓库对应目录。
 # ---------------------------------------------------------------------------
-_PLATFORM_DIR = os.path.join(os.path.dirname(os.path.dirname(BASE_DIR)), "provenance")
+def _probe_platform_dir() -> str:
+    """探测平台代码目录:先找含 frontend/ 的子目录,再退到仓库根"""
+    repo = os.path.join(os.path.dirname(os.path.dirname(BASE_DIR)), "provenance")
+    for cand in (
+        os.path.join(repo, "provenance"),   # 平台代码在仓库子目录(当前结构)
+        repo,                               # 平台代码直接在仓库根
+    ):
+        if os.path.isdir(os.path.join(cand, "frontend")):
+            return cand
+    return repo
+
+_PLATFORM_DIR = _probe_platform_dir()
 VILLAGE_ROOT = os.environ.get(
     "MAVIS_ASSETS_ROOT",
     os.path.join(_PLATFORM_DIR, "frontend", "static", "assets", "village"),

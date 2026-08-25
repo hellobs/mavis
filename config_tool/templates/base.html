@@ -54,7 +54,19 @@ nav a:hover { color: #333; }
     <a href="/relationships" class="{{ 'active' if active == 'relationships' }}">关系录入</a>
     <a href="/story" class="{{ 'active' if active == 'story' }}">剧情录入</a>
     <a href="/agents" class="{{ 'active' if active == 'agents' }}">已配置角色</a>
+    <button type="button" id="export-btn" style="margin:0; padding:4px 14px; font-size:12px; background:#2d6cdf; float:right;">导出配置 (.zip)</button>
 </nav>
+<script>
+// 导出所有已配置内容为 zip 下载
+document.getElementById("export-btn").addEventListener("click", function() {
+    var a = document.createElement("a");
+    a.href = "/api/export";
+    a.download = "mavis-configs.zip";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+});
+</script>
 {% block content %}{% endblock %}
 </div>
 {% block scripts %}{% endblock %}

@@ -20,7 +20,7 @@ MAVIS_DIR = os.path.join(os.path.dirname(BASE_DIR), "mavisframework")
 sys.path.insert(0, MAVIS_DIR)  # 允许 import mavisframework.*
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import uvicorn
@@ -567,6 +567,55 @@ async def delete_agent(request: Request):
         return JSONResponse({"ok": False, "errors": [f"角色 {name} 不存在"]})
     shutil.rmtree(agent_dir)
     return JSONResponse({"ok": True, "name": name})
+
+
+@app.get("/api/export")
+async def export_configs():
+    """把所有已配置角色 + 关系/剧情打包成 zip 下载
+
+    zip 结构:
+        agents/<角色名>/agent.json + portrait.png + texture.png
+        scenarios/<业务>/relationships.json
+        scenarios/<业务>/story.json
+    """
+    import zipfile
+    import io as _io
+
+    buf = _io.BytesIO()
+    count_agents, count_scenarios = 0, 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # 1) 角色文件夹(agents 目录下每个角色一个文件夹)
+        if os.path.isdir(AGENTS_ROOT):
+            for name in sorted(os.listdir(AGENTS_ROOT)):
+                agent_dir = os.path.join(AGENTS_ROOT, name)
+                if not os.path.isdir(agent_dir):
+                    continue
+                for fname in os.listdir(agent_dir):
+                    fp = os.path.join(agent_dir, fname)
+                    if os.path.isfile(fp):
+                        zf.write(fp, f"agents/{name}/{fname}")
+                count_agents += 1
+        # 2) 场景(每个业务目录下的 relationships.json / story.json)
+        if os.path.isdir(SCENARIOS_DIR):
+            for biz in sorted(os.listdir(SCENARIOS_DIR)):
+                biz_dir = os.path.join(SCENARIOS_DIR, biz)
+                if not os.path.isdir(biz_dir):
+                    continue
+                wrote = False
+                for fname in ("relationships.json", "story.json"):
+                    fp = os.path.join(biz_dir, fname)
+                    if os.path.isfile(fp):
+                        zf.write(fp, f"scenarios/{biz}/{fname}")
+                        wrote = True
+                if wrote:
+                    count_scenarios += 1
+
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="mavis-configs.zip"'},
+    )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}角色配置{% endblock %}
+{% block content %}
+<h1>角色配置</h1>
+<p style="font-size:13px;color:#666;">填写角色信息,生成标准 JSON 配置。生成后经框架校验。<span class="req">*</span> 必填,其余<span class="opt">(选填)</span>。</p>
+
+<form id="config-form">
+    <div class="section">
+        <h2>一、角色基本信息</h2>
+        <div class="row">
+            <div>
+                <label>业务名称 <span class="req">*</span></label>
+                <input type="text" name="business" value="investment">
+                <div class="hint">如 investment(投资咨询)、medical(医疗)</div>
+            </div>
+            <div>
+                <label>角色类型 <span class="req">*</span></label>
+                <select name="role_type">
+                    <option value="user">user(普通用户)</option>
+                    <option value="ai_tool">ai_tool(AI 工具角色)</option>
+                </select>
+                <div class="hint">GTC 演示需至少一个 ai_tool</div>
+            </div>
+        </div>
+        <div class="row">
+            <div>
+                <label>角色名 <span class="req">*</span></label>
+                <input type="text" name="name" required>
+                <div class="hint">全场景唯一</div>
+            </div>
+            <div>
+                <label>所属组织 <span class="opt">(选填)</span></label>
+                <input type="text" name="organization" placeholder="如:投资咨询中心">
+            </div>
+        </div>
+        <div class="row">
+            <div>
+                <label>所在区域 <span class="req">*</span></label>
+                <select name="living_area">
+                    {% for addr in addresses %}
+                    <option value="{{ addr }}">{{ addr }}</option>
+                    {% endfor %}
+                </select>
+                <div class="hint">常驻区域;坐标由系统自动分配</div>
+            </div>
+        </div>
+        <label>当前状态描述 <span class="opt">(选填)</span></label>
+        <input type="text" name="currently" placeholder="如:正在整理客户资产配置方案">
+    </div>
+
+    <div class="section">
+        <h2>二、职责与权限</h2>
+        <label>岗位 <span class="opt">(选填)</span></label>
+        <input type="text" name="position" placeholder="如:首席投资顾问">
+        <label>职责 <span class="opt">(选填)</span></label>
+        <textarea name="responsibility" placeholder="每行一条,或分号分隔"></textarea>
+        <label>权限 <span class="opt">(选填)</span></label>
+        <textarea name="authority" placeholder="每行一条,可含 可/不可"></textarea>
+        <label>规则/红线 <span class="opt">(选填)</span></label>
+        <textarea name="rules" placeholder="每行一条"></textarea>
+    </div>
+
+    <div class="section">
+        <h2>三、目标</h2>
+        <label>目标权重 <span class="opt">(选填,不填则等权)</span></label>
+        <textarea name="goals" placeholder="收益最大化:0.6&#10;风险规避:0.4"></textarea>
+        <div class="hint">每行"目标:权重",权重总和应为 1</div>
+    </div>
+
+    <div class="section">
+        <h2>四、人设与习惯</h2>
+        <div class="row">
+            <div>
+                <label>年龄 <span class="opt">(选填,默认 35)</span></label>
+                <input type="number" name="age" value="35">
+            </div>
+        </div>
+        <label>先天性格 <span class="opt">(选填)</span></label>
+        <input type="text" name="innate" placeholder="如:谨慎、重视数据、情绪化">
+        <label>后天习得 <span class="opt">(选填)</span></label>
+        <input type="text" name="learned">
+        <label>生活习惯 <span class="opt">(选填)</span></label>
+        <input type="text" name="lifestyle">
+        <label>日常计划概述 <span class="opt">(选填)</span></label>
+        <input type="text" name="daily_plan">
+    </div>
+
+    <button type="submit">生成配置</button>
+    <button type="button" id="clear-draft" style="background:#888;margin-left:12px;">清空草稿</button>
+</form>
+
+<div id="result"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ===== 草稿自动保存(刷新/重开不丢失)=====
+var FORM_KEY = "mavis_config_draft";
+function saveDraft() {
+    var form = document.getElementById("config-form");
+    var data = {};
+    new FormData(form).forEach(function(v, k) { data[k] = v; });
+    try { localStorage.setItem(FORM_KEY, JSON.stringify(data)); } catch(e) {}
+}
+function restoreDraft() {
+    try {
+        var raw = localStorage.getItem(FORM_KEY);
+        if (!raw) return;
+        var data = JSON.parse(raw);
+        var form = document.getElementById("config-form");
+        Object.keys(data).forEach(function(k) {
+            var el = form.elements[k];
+            if (el) el.value = data[k];
+        });
+    } catch(e) {}
+}
+function clearDraft() {
+    try { localStorage.removeItem(FORM_KEY); } catch(e) {}
+    document.getElementById("config-form").reset();
+}
+// 输入时自动保存
+document.getElementById("config-form").addEventListener("input", saveDraft);
+// 清空草稿按钮
+document.getElementById("clear-draft").addEventListener("click", function() {
+    clearDraft();
+    document.getElementById("result").textContent = "";
+});
+// 页面加载时恢复草稿
+restoreDraft();
+
+document.getElementById("config-form").addEventListener("submit", async function(e) {
+    e.preventDefault();
+    var form = new FormData(this);
+    var data = {};
+    form.forEach(function(v, k) { data[k] = v; });
+    // 清理角色名:去首尾空白/制表符
+    if (data.name) { data.name = data.name.replace(/^\s+|\s+$/g, "").replace(/[\t\r\n]/g, ""); }
+    var res = document.getElementById("result");
+    res.className = "";
+    res.textContent = "生成中...";
+    try {
+        var resp = await fetch("/api/generate", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(data)
+        });
+        var out = await resp.json();
+        if (out.ok) {
+            // 成功提交后清除草稿,避免下次误用旧内容
+            clearDraft();
+            res.className = "ok";
+            res.textContent = "已生成并校验通过:\n路径: " + out.path + "\n\n" + JSON.stringify(out.agent, null, 2);
+        } else {
+            res.className = "error";
+            res.textContent = "校验未通过:\n" + out.errors.join("\n");
+        }
+    } catch (err) {
+        res.className = "error";
+        res.textContent = "请求失败: " + err;
+    }
+});
+</script>
+{% endblock %}

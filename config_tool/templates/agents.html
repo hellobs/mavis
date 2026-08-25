@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}已配置角色{% endblock %}
+{% block content %}
+<h1>已配置角色</h1>
+
+{% if agents %}
+<table>
+    <tr>
+        <th>角色</th>
+        <th>类型</th>
+        <th>岗位</th>
+        <th>当前状态</th>
+        <th>目标</th>
+    </tr>
+    {% for a in agents %}
+    <tr class="agent-row" onclick="toggle('{{ a.name }}')">
+        <td>{{ a.name }}</td>
+        <td>{{ a.role_type }}</td>
+        <td>{{ a.duty.position if a.duty else '' }}</td>
+        <td>{{ a.currently }}</td>
+        <td>
+            {% if a.goals %}{% for k, v in a.goals.items() %}{{ k }}:{{ v }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+        </td>
+    </tr>
+    <tr><td colspan="5" style="padding:0;border:none;">
+        <div class="detail" id="detail-{{ a.name }}">
+            <h3>{{ a.name }} 完整配置</h3>
+            <div class="field"><span class="label">类型</span>{{ a.role_type }}</div>
+            <div class="field"><span class="label">组织</span>{{ a.organization or '' }}</div>
+            <div class="field"><span class="label">坐标</span>{{ a.coord }}</div>
+            <div class="field"><span class="label">当前状态</span>{{ a.currently }}</div>
+            {% if a.duty %}
+            <div class="field"><span class="label">岗位</span>{{ a.duty.position or '' }}</div>
+            <div class="field"><span class="label">职责</span>{{ a.duty.responsibility | join('; ') }}</div>
+            <div class="field"><span class="label">权限</span>{{ a.duty.authority | join('; ') }}</div>
+            <div class="field"><span class="label">规则</span>{{ a.duty.rules | join('; ') }}</div>
+            {% endif %}
+            {% if a.goals %}
+            <div class="field"><span class="label">目标</span>{% for k, v in a.goals.items() %}{{ k }}:{{ v }} {% endfor %}</div>
+            {% endif %}
+            {% if a.scratch %}
+            <div class="field"><span class="label">性格</span>{{ a.scratch.innate or '' }}</div>
+            <div class="field"><span class="label">习得</span>{{ a.scratch.learned or '' }}</div>
+            <div class="field"><span class="label">习惯</span>{{ a.scratch.lifestyle or '' }}</div>
+            <div class="field"><span class="label">日常</span>{{ a.scratch.daily_plan or '' }}</div>
+            {% endif %}
+            <div class="field" style="margin-top:12px;">
+                <button type="button" class="del-btn del-agent" data-name="{{ a.name }}">删除该角色</button>
+                <span class="hint">删除 agent.json 及贴图(不可恢复)</span>
+            </div>
+        </div>
+    </td></tr>
+    {% endfor %}
+</table>
+{% else %}
+<p style="font-size:13px;color:#888;">暂无已配置角色</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggle(name) {
+    var el = document.getElementById("detail-" + name);
+    if (el) el.style.display = (el.style.display === "none" || el.style.display === "") ? "block" : "none";
+}
+
+// 删除角色(点详情区按钮,不冒泡到行 toggle)
+document.querySelectorAll(".del-agent").forEach(function(btn) {
+    btn.addEventListener("click", async function(e) {
+        e.stopPropagation();
+        var name = this.getAttribute("data-name") || "";
+        if (!confirm("确定删除角色 [" + name + "] ?\n将删除 agent.json 及贴图,不可恢复。")) return;
+        try {
+            var resp = await fetch("/api/agent/delete", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({name: name})
+            });
+            var out = await resp.json();
+            if (out.ok) {
+                location.reload();
+            } else {
+                alert(out.errors.join("\n"));
+            }
+        } catch (err) {
+            alert("请求失败: " + err);
+        }
+    });
+});
+</script>
+{% endblock %}

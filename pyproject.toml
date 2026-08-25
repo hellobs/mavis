@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mavisframework"
+version = "1.0.0"
+description = "MAVIS 生成式多智能体仿真框架(自研,零外部 AI 依赖)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "pydantic>=2.0",
+    "requests>=2.31",
+]
+
+# 标准布局:包在 mavisframework/ 子目录
+[tool.setuptools]
+packages = [
+    "mavisframework",
+    "mavisframework.config",
+    "mavisframework.core",
+    "mavisframework.output",
+    "mavisframework.prompt",
+    "mavisframework.runtime",
+    "mavisframework.scene",
+]
+
+[tool.setuptools.package-data]
+mavisframework = ["prompts/*.txt"]

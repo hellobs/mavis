@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>{% block title %}MAVIS 配置工具{% endblock %}</title>
+<style>
+body { font-family: "Microsoft YaHei", sans-serif; background: #fafafa; color: #222; margin: 0; padding: 24px; }
+.container { max-width: 760px; margin: 0 auto; background: #fff; border: 1px solid #ddd; padding: 28px 36px; }
+h1 { font-size: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; margin-top: 0; }
+h2 { font-size: 15px; margin: 28px 0 10px; color: #333; }
+.section { border: 1px solid #e0e0e0; padding: 16px 20px; margin-bottom: 20px; }
+label { display: block; font-size: 13px; margin: 10px 0 4px; color: #444; }
+.req { color: #c00; }
+.opt { color: #999; font-size: 12px; font-weight: normal; }
+input[type=text], input[type=number], select, textarea {
+    width: 100%; padding: 6px 8px; border: 1px solid #bbb; font-size: 13px;
+    box-sizing: border-box; background: #fff; font-family: inherit;
+}
+textarea { height: 60px; resize: vertical; }
+.hint { font-size: 12px; color: #888; margin-top: 2px; }
+.row { display: flex; gap: 16px; }
+.row > div { flex: 1; }
+button { margin-top: 20px; padding: 10px 32px; background: #333; color: #fff;
+    border: none; font-size: 14px; cursor: pointer; }
+button:hover { background: #555; }
+.del-btn { margin: 0; padding: 3px 10px; background: #e57373; color: #fff;
+    border: none; font-size: 12px; cursor: pointer; border-radius: 2px;
+    white-space: nowrap; }
+.del-btn:hover { background: #ef9a9a; }
+.del-agent { margin: 0; padding: 5px 14px; font-size: 12px; }
+#result, #rel-result, #story-result { margin-top: 16px; font-size: 13px; white-space: pre-wrap; }
+.error { color: #a00; }
+.ok { color: #070; }
+code { background: #f5f5f5; padding: 1px 4px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+th { text-align: left; padding: 8px; border: 1px solid #ddd; background: #f0f0f0; }
+td { padding: 8px; border: 1px solid #eee; vertical-align: top; }
+tr.agent-row { cursor: pointer; }
+tr.agent-row:hover { background: #f8f8f8; }
+.detail { display: none; background: #fafafa; padding: 12px 16px; border: 1px solid #e0e0e0; margin: 4px 0 12px; font-size: 13px; }
+.detail h3 { margin: 0 0 8px; font-size: 14px; }
+.detail .field { margin: 4px 0; }
+.detail .label { color: #666; display: inline-block; min-width: 100px; }
+nav { margin-bottom: 20px; border-bottom: 1px solid #ddd; padding-bottom: 10px; font-size: 14px; }
+nav a { text-decoration: none; margin-right: 22px; color: #666; }
+nav a.active { color: #333; font-weight: bold; }
+nav a:hover { color: #333; }
+</style>
+</head>
+<body>
+<div class="container">
+<nav>
+    <a href="/" class="{{ 'active' if active == 'config' }}">角色配置</a>
+    <a href="/relationships" class="{{ 'active' if active == 'relationships' }}">关系录入</a>
+    <a href="/story" class="{{ 'active' if active == 'story' }}">剧情录入</a>
+    <a href="/agents" class="{{ 'active' if active == 'agents' }}">已配置角色</a>
+</nav>
+{% block content %}{% endblock %}
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -182,6 +182,45 @@ class Agent:
         """
         self.scratch.config["goals"] = dict(goals or {})
 
+    def get_goals(self) -> dict:
+        """当前目标权重"""
+        return dict((self.scratch.config or {}).get("goals", {}) or {})
+
+    def goal_score(self, action: str) -> Optional[float]:
+        """决策级目标打分:加权 score = Σ w_i * sim(action, goal_i)
+
+        依赖 GoalScorer(embedding);不可用或未配 goals 时返回 None(降级为纯 prompt 级)。
+        """
+        goals = self.get_goals()
+        if not goals or not action:
+            return None
+        try:
+            from mavisframework.runtime.goal_scorer import GoalScorer
+
+            scorer = getattr(self, "_goal_scorer", None)
+            if scorer is None:
+                scorer = GoalScorer()
+                self._goal_scorer = scorer
+            return scorer.score(action, goals)
+        except Exception:
+            return None
+
+    def goal_alignment(self, action: str) -> dict:
+        """逐目标对齐度(调试/决策留痕用)"""
+        goals = self.get_goals()
+        if not goals or not action:
+            return {}
+        try:
+            from mavisframework.runtime.goal_scorer import GoalScorer
+
+            scorer = getattr(self, "_goal_scorer", None)
+            if scorer is None:
+                scorer = GoalScorer()
+                self._goal_scorer = scorer
+            return scorer.alignment(action, goals)
+        except Exception:
+            return {}
+
     def completion(self, func_hint, *args, **kwargs):
         assert hasattr(
             self.scratch, "prompt_" + func_hint
@@ -532,8 +571,32 @@ class Agent:
             address = self._resolve_action_address(describes)
             self._action_cache[cache_key] = address
 
-        event = self.make_event(self.name, describes[-1], address)
-        obj_describe = self.completion("describe_object", address[-1], describes[-1])
+        # 决策级目标打分:行动与目标权重的一致性(低分则重生成一次行动描述)
+        # 硬约束:score = Σ w_i * sim(action, goal_i);低分提示 LLM 调整后再生成一次
+        action_desc = describes[-1]
+        goals = self.get_goals()
+        if goals and self._goal_scorer_available():
+            score = self.goal_score(action_desc)
+            self.status["goal_score"] = round(score, 4) if score is not None else None
+            # 逐目标对齐度(供可视化展示每个变量值: action 与每个 goal 的相似度)
+            self.status["goal_alignment"] = self.goal_alignment(action_desc)
+            if score is not None and score < self.think_config.get("goal_min_score", 0.35):
+                self.logger.info(
+                    "{} goal score {:.3f} < threshold, regenerating action...".format(
+                        self.name, score
+                    )
+                )
+                action_desc = self.completion("describe_event", action_desc)
+                self.status["goal_score"] = round(
+                    self.goal_score(action_desc) or 0.0, 4
+                )
+                self.status["goal_alignment"] = self.goal_alignment(action_desc)
+        else:
+            self.status["goal_score"] = None
+            self.status["goal_alignment"] = {}
+
+        event = self.make_event(self.name, action_desc, address)
+        obj_describe = self.completion("describe_object", address[-1], action_desc)
         obj_event = self.make_event(address[-1], obj_describe, address)
 
         event.emoji = f"{de_plan['describe']}"
@@ -544,6 +607,20 @@ class Agent:
             duration=de_plan["duration"],
             start=self._timer.daily_time(de_plan["start"]),
         )
+
+    def _goal_scorer_available(self) -> bool:
+        """GoalScorer 是否可用(embedding 可达)"""
+        try:
+            from mavisframework.runtime.goal_scorer import GoalScorer
+
+            scorer = getattr(self, "_goal_scorer", None)
+            if scorer is None:
+                scorer = GoalScorer()
+                self._goal_scorer = scorer
+            # 探活:embed 一个空串看是否返回 None
+            return scorer.embed("probe") is not None
+        except Exception:
+            return False
 
     def _resolve_action_address(self, describes):
         """解析行动目标地址(定位链:空间匹配优先,LLM 兜底)"""

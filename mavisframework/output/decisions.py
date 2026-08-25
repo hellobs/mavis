@@ -67,6 +67,7 @@ def generate_decision_events(
                 "location": "，".join(ev.get("address", [])),
                 "predicate": predicate,
                 "poignancy": ad.get("status", {}).get("poignancy", 0) if isinstance(ad.get("status"), dict) else 0,
+                "goal_score": ad.get("status", {}).get("goal_score", None) if isinstance(ad.get("status"), dict) else None,
                 "involves": involves,
                 "has_conversation": has_chat,
                 "category": None,

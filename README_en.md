@@ -13,29 +13,59 @@ as consumers of protocol messages.
 
 ## 1. Installation
 
-Recommended with [uv](https://docs.astral.sh/uv/), Python >= 3.12.
+mavisframework is a standard Python package (pyproject.toml + setuptools),
+Python >= 3.12. Works with any toolchain (pip / uv / poetry).
 
 ```bash
-# Option A: build wheel and install (recommended, verified stable)
-uv build
-uv pip install dist/mavisframework-1.0.0-py3-none-any.whl
+# Development/collaboration: editable install (code changes take effect
+# immediately; after this repo updates, just `git pull` — no reinstall needed)
+pip install -e .
 
-# Option B: editable install (for framework development)
-uv venv --python 3.12
-uv pip install -e .
+# Release/pinned version: build wheel and install
+pip install .                          # install from source directly
+python -m build && pip install dist/mavisframework-1.0.0-py3-none-any.whl
+
+# uv also works (optional; toolchain of your choice)
+# uv pip install -e .
+# uv build && uv pip install dist/mavisframework-1.0.0-py3-none-any.whl
 ```
-
-Known issue: the editable install (`-e`) has an import quirk in the current
-environment — the top-level `mavisframework` imports fine, but nested
-submodules (e.g. `mavisframework.config.loader`) may fail to resolve after
-changing the working directory. Use Option A (wheel) for production or
-platform integration.
 
 Runtime dependencies are only `pydantic>=2.0` and `requests>=2.31`; there are
 no hard dependencies on AI or rendering frameworks. LLMs are plugged in via
-providers (Ollama / OpenAI) and are not mandatory.
+providers (Ollama / OpenAI) and are not mandatory — but **running a simulation
+requires an LLM**: if none is configured, the framework raises a clear error
+telling you to configure one.
 
-## 2. Module Layout
+## 2. Top-Level API
+
+`mavisframework` exposes common entry points; users do not need to dig into
+internal submodules:
+
+```python
+import mavisframework as mf
+
+# config loading & validation
+cfg = mf.load_config("20250213-09:30", 2, ["沈砚之", "老周"])   # new simulation config
+cfg2 = mf.load_config_from_log("results/checkpoints/invest")     # resume from log
+scenario = mf.load_scenario("scenarios/investment")              # scenario config
+errs = mf.validate_all(agents, rels, story, maze)                # config validation
+
+# runtime
+game = mf.Game("demo", "frontend/static", cfg, {})               # game container
+sim = mf.Simulator(max_workers=2, story=story)                   # parallel scheduler
+llm = mf.create_llm_provider(cfg["agent_base"]["think"]["llm"])  # LLM provider
+
+# message protocol
+from mavisframework import validate_message, AgentState, ChatLineMsg
+
+# core classes
+from mavisframework import Agent, Timer, Maze
+```
+
+The full symbol list is in `mavisframework/__init__.py` (`__all__`). Internal
+submodule paths (e.g. `mavisframework.config.loader`) remain available.
+
+## 3. Module Layout
 
 ```
 mavisframework/
@@ -66,7 +96,7 @@ mavisframework/
     └── validator.py      # config validation (syntax/map/role consistency)
 ```
 
-## 3. Environment Variables
+## 4. Environment Variables
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -76,7 +106,7 @@ mavisframework/
 | `MAVIS_STATIC_ROOT` | `frontend/static` | frontend static root (compressor) |
 | `MAVIS_CHECKPOINTS_ROOT` | `results/checkpoints` | checkpoints root |
 
-## 4. Layering
+## 5. Layering
 
 ```
 scenarios/          business layer (change business = change config)
@@ -90,7 +120,7 @@ frontend/unity      frontend shell (planned, consumes the same protocol)
 governance platform consumes DecisionEventStream
 ```
 
-## 5. Message Protocol
+## 6. Message Protocol
 
 Defined in `runtime/protocol.py`. Coordinates are grid-based; the protocol is
 transport-agnostic (SSE / WebSocket both work).
@@ -103,7 +133,7 @@ transport-agnostic (SSE / WebSocket both work).
 | `SnapshotMsg` | full snapshot | new connections catch-up |
 | `DecisionEvent` | decision events | governance platform / expert UI |
 
-## 6. Usage
+## 7. Usage
 
 The framework's `Game` + `Simulator` + `LiveCompressor` drive the complete
 simulation (parallel thinking / checkpoints / decision export / WebSocket
@@ -115,7 +145,7 @@ A complete demo platform is [Provenance](https://github.com/hellobs/provenance):
 its real-time service `live_fastapi.py` is a reference implementation of the
 framework route (FastAPI + WebSocket consuming framework contract messages).
 
-## 7. Unity Migration
+## 8. Unity Migration
 
 ```
 framework core (agent/memory/pathfinding/decision export)  ← zero change
@@ -127,7 +157,7 @@ frontend: Phaser → Unity                      ← rendering only (same protoco
 The framework is unaware of the concrete frontend implementation — this is the
 structural guarantee that Phaser is not embedded in the framework.
 
-## 8. Repository Layout
+## 9. Repository Layout
 
 ```
 mavisframework/          # framework package (pip package; pyproject at repo root)
@@ -147,7 +177,7 @@ variables:
 - `MAVIS_ASSETS_ROOT` — platform frontend assets root (`frontend/static/assets/village`)
 - `MAVIS_SCENARIOS_DIR` — platform scenario directory (`scenarios`)
 
-## 9. Status
+## 10. Status
 
 - Done: protocol / core / scene(maze) / runtime(llm, simulator) / output(decisions) / config(loader, validator)
 - The framework runs standalone: full agent lifecycle, memory stores
@@ -156,3 +186,27 @@ variables:
 - Platform consumption: the Provenance platform's real-time service is driven
   by the framework's Game + Simulator; decision export is wired into the pipeline
 - Next: business-layer config effects (relation/story injection), Unity frontend
+
+## 11. Versioning
+
+**API stability promise**: once published, the top-level API (Section 2) stays
+backward-compatible. New capabilities must not break existing signatures; any
+breaking change requires a major version bump and a migration note here.
+
+**Semantic versioning** ([semver](https://semver.org/)):
+
+| Change type | Version example |
+|---|---|
+| Breaking API change | 2.0.0 |
+| New feature (backward-compatible) | 1.1.0 |
+| Bug fix (backward-compatible) | 1.0.1 |
+
+**Update flow** (for consumers):
+
+- **Development/collaboration**: install with `pip install -e .`; after this
+  repo updates, `git pull` takes effect immediately — no reinstall needed
+- **Release**: bump the version per semver and build the wheel; consumers
+  update `mavisframework==X.Y.Z` in their requirements and reinstall
+- **Version sync**: the platform (Provenance) pins the dependency version in
+  its `requirements.txt`; `pyproject.toml` in this repo is the single source of
+  truth for the version, updated together at each release

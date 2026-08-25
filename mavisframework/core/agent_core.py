@@ -179,11 +179,16 @@ class Agent:
         func = getattr(self.scratch, "prompt_" + func_hint)
         res = func(*args, **kwargs)._asdict()
         title, msg = "{}.{}".format(self.name, func_hint), {}
-        if self.llm_available():
-            self.logger.info("{} -> {}".format(self.name, func_hint))
-            output = self._llm.completion(**res)
-            msg = {"<PROMPT>": "\n" + res["prompt"] + "\n"}
-            msg.update({"response": output})
+        if not self.llm_available():
+            raise RuntimeError(
+                "Agent {} 缺少可用 LLM:请先配置大模型"
+                "(data/config.json 的 agent.think.llm,支持 Ollama / OpenAI 兼容 API)。"
+                "框架运行必须有 LLM,不支持无 LLM 环境。".format(self.name)
+            )
+        self.logger.info("{} -> {}".format(self.name, func_hint))
+        output = self._llm.completion(**res)
+        msg = {"<PROMPT>": "\n" + res["prompt"] + "\n"}
+        msg.update({"response": output})
         self.logger.debug(_block_msg(title, msg))
         return output
 

@@ -8,23 +8,55 @@
 
 ## 1. 安装
 
-推荐使用 [uv](https://docs.astral.sh/uv/),Python ≥ 3.12。
+mavisframework 是标准 Python 包(pyproject.toml + setuptools),Python ≥ 3.12。
+支持 pip / uv / poetry 任意工具链。
 
 ```bash
-# 方式 A:构建 wheel 并安装(推荐,已验证稳定)
-uv build
-uv pip install dist/mavisframework-1.0.0-py3-none-any.whl
+# 开发/协作期:可编辑安装(改框架代码即时生效;本仓库更新后 git pull 即可,无需重装)
+pip install -e .
 
-# 方式 B:可编辑安装(开发框架时改动即时生效)
-uv venv --python 3.12
-uv pip install -e .
+# 或构建 wheel 后安装(发布期/冻结版本)
+pip install .                          # 直接装源码
+python -m build && pip install dist/mavisframework-1.0.0-py3-none-any.whl
+
+# uv 亦可(可选,工具链自选)
+# uv pip install -e .
+# uv build && uv pip install dist/mavisframework-1.0.0-py3-none-any.whl
 ```
 
-已知问题:可编辑安装(`-e`)在当前环境下存在导入异常——顶层 `mavisframework` 可正常导入,但切换工作目录后嵌套子模块(如 `mavisframework.config.loader`)可能解析失败。生产环境或平台集成请使用方式 A(wheel 安装)。
+运行依赖仅 `pydantic>=2.0` 与 `requests>=2.31`,无 AI 或渲染框架的硬依赖。
+LLM 通过可插拔 Provider(Ollama / OpenAI)接入,非强制——但**运行模拟必须有 LLM**,
+未配置时会抛出明确错误提示配置大模型。
 
-运行依赖仅 `pydantic>=2.0` 与 `requests>=2.31`,无 AI 或渲染框架的硬依赖。LLM 通过可插拔 Provider(Ollama / OpenAI)接入,非强制。
+## 2. 顶层 API
 
-## 2. 模块结构
+`mavisframework` 包暴露常用入口,使用方无需深入内部子模块:
+
+```python
+import mavisframework as mf
+
+# 配置加载与校验
+cfg = mf.load_config("20250213-09:30", 2, ["沈砚之", "老周"])   # 新模拟配置
+cfg2 = mf.load_config_from_log("results/checkpoints/invest")     # 断点续跑
+scenario = mf.load_scenario("scenarios/investment")              # 场景配置
+errs = mf.validate_all(agents, rels, story, maze)                # 配置校验
+
+# 运行时
+game = mf.Game("demo", "frontend/static", cfg, {})               # 游戏容器
+sim = mf.Simulator(max_workers=2, story=story)                   # 并行调度器
+llm = mf.create_llm_provider(cfg["agent_base"]["think"]["llm"])  # LLM Provider
+
+# 消息协议
+from mavisframework import validate_message, AgentState, ChatLineMsg
+
+# 核心类
+from mavisframework import Agent, Timer, Maze
+```
+
+完整符号清单见 `mavisframework/__init__.py` 的 `__all__`。内部子模块路径
+(`mavisframework.config.loader` 等)仍可继续使用。
+
+## 3. 模块结构
 
 ```
 mavisframework/
@@ -55,7 +87,7 @@ mavisframework/
     └── validator.py      # 配置校验(语法/地图一致性/角色交叉)
 ```
 
-## 3. 环境变量
+## 4. 环境变量
 
 | 变量 | 默认值 | 用途 |
 |---|---|---|
@@ -65,7 +97,7 @@ mavisframework/
 | `MAVIS_STATIC_ROOT` | `frontend/static` | 前端静态资源根(compressor) |
 | `MAVIS_CHECKPOINTS_ROOT` | `results/checkpoints` | 存档根目录 |
 
-## 4. 分层关系
+## 5. 分层关系
 
 ```
 scenarios/          业务层(换业务=改配置):角色/场景/关系/剧情
@@ -79,7 +111,7 @@ frontend/unity      前端壳(规划中,WebSocket 消费同一协议)
 决策平台            消费 DecisionEventStream
 ```
 
-## 5. 消息协议
+## 6. 消息协议
 
 定义于 `runtime/protocol.py`,坐标一律为格子坐标,传输与具体通道无关(SSE / WebSocket 均可)。
 
@@ -91,13 +123,13 @@ frontend/unity      前端壳(规划中,WebSocket 消费同一协议)
 | `SnapshotMsg` | 全量快照 | 新连接追赶 |
 | `DecisionEvent` | 决策事件 | 决策平台/专家界面 |
 
-## 6. 使用方式
+## 7. 使用方式
 
 框架 `Game` + `Simulator` + `LiveCompressor` 驱动完整模拟(并行思考/存档/决策导出/WebSocket 推送)。项目已移除旧实现(`modules/`,以及 `start.py`/`live.py`/`compress.py`/`replay.py`),全部逻辑在框架内,可在 git 历史中回退查看。
 
 完整演示平台见 [Provenance](https://github.com/hellobs/provenance):其实时服务 `live_fastapi.py` 即框架路线的参考实现(FastAPI + WebSocket 消费框架契约消息)。
 
-## 7. Unity 迁移
+## 8. Unity 迁移
 
 ```
 框架核心(agent/记忆/寻路/决策导出)  ← 零改动
@@ -108,7 +140,7 @@ frontend/unity      前端壳(规划中,WebSocket 消费同一协议)
 
 框架层不感知前端的具体实现,这是"Phaser 不嵌入框架"的结构保证。
 
-## 8. 仓库结构
+## 9. 仓库结构
 
 ```
 mavisframework/          # 框架包(pip 包,pyproject 位于仓库根)
@@ -123,9 +155,29 @@ config_tool 属于框架仓库,但其产物(角色/关系/剧情)写入平台的
 - `MAVIS_ASSETS_ROOT` — 平台前端资源根(`frontend/static/assets/village`)
 - `MAVIS_SCENARIOS_DIR` — 平台场景目录(`scenarios`)
 
-## 9. 状态
+## 10. 状态
 
 - 已完成:protocol / core / scene(maze) / runtime(llm, simulator) / output(decisions) / config(loader, validator)
 - 框架可独立运行:Agent 完整生命周期、记忆存储(SimpleStore / LlamaIndexStore 可选)、提示词系统均不依赖外部模块
 - 平台消费:Provenance 平台的实时服务由框架 Game + Simulator 驱动,决策导出接入管线
 - 后续:业务层配置生效(关系注入/剧情注入)、Unity 前端
+
+## 11. 版本管理
+
+**API 稳定承诺**:顶层 API(见第 2 节)一旦发布即保持兼容。新增能力不破坏既有签名;确需破坏性改动时,必须升主版本号并在此文档注明迁移方式。
+
+**语义化版本**([semver](https://semver.org/)):
+
+| 变更类型 | 版本示例 |
+|---|---|
+| 破坏性 API 变更 | 2.0.0 |
+| 新增功能(向后兼容) | 1.1.0 |
+| Bug 修复(向后兼容) | 1.0.1 |
+
+**更新链路**(使用方):
+
+- **开发/协作期**:以 `pip install -e .` 安装;本仓库更新后 `git pull`,代码即时生效,无需重装
+- **发布期**:按 semver 升版本号并构建 wheel;使用方更新 `requirements.txt` 中的
+  `mavisframework==X.Y.Z` 后重新安装
+- **版本同步**:平台(Provenance)通过 `requirements.txt` 固定依赖版本;框架仓库
+  的 `pyproject.toml` 是版本唯一来源,发布时同步更新

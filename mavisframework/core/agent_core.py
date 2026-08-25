@@ -106,7 +106,6 @@ class Agent:
         self.scratch = Scratch(
             self.name, config["currently"], _scratch_cfg, timer=self._timer
         )
-
         # status
         status = {"poignancy": 0}
         self.status = self._update_dict(status, config.get("status", {}))
@@ -174,6 +173,14 @@ class Agent:
             from mavisframework.runtime.llm import create_llm_provider
 
             self._llm = create_llm_provider(self.think_config["llm"])
+
+    def set_goals(self, goals: dict):
+        """热更新目标权重(运行中即时生效)
+
+        更新 scratch 配置中的 goals,下次 base_desc 渲染(即下一轮思考)即用新权重;
+        不重建 Agent,零中断。
+        """
+        self.scratch.config["goals"] = dict(goals or {})
 
     def completion(self, func_hint, *args, **kwargs):
         assert hasattr(

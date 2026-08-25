@@ -86,6 +86,29 @@ class TestValidateAgents:
         agents = {"老周": _agent(), "沈砚之": _agent(name="沈砚之", coord=(5, 5))}
         assert validate_agents(agents, _maze()) == []
 
+    def test_goals_sum_to_one(self):
+        agent = _agent()
+        agent["goals"] = {"收益最大化": 0.7, "风险规避": 0.3}
+        assert validate_agents({"老周": agent}, _maze()) == []
+
+    def test_goals_sum_not_one(self):
+        agent = _agent()
+        agent["goals"] = {"收益最大化": 0.7, "风险规避": 0.4}  # 总和 1.1
+        errs = validate_agents({"老周": agent}, _maze())
+        assert any("goals" in e and "总和" in e for e in errs)
+
+    def test_goals_empty(self):
+        agent = _agent()
+        agent["goals"] = {}
+        errs = validate_agents({"老周": agent}, _maze())
+        assert any("goals" in e for e in errs)
+
+    def test_goals_non_numeric(self):
+        agent = _agent()
+        agent["goals"] = {"收益最大化": "high"}
+        errs = validate_agents({"老周": agent}, _maze())
+        assert any("goals" in e for e in errs)
+
 
 # ---------------------------------------------------------------------------
 # validate_relationships

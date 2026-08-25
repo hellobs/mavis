@@ -4,5 +4,6 @@ Innate traits: ${innate}
 Learned traits: ${learned}
 Lifestyle: ${lifestyle}
 Daily schedule: ${daily_plan}
+Goals (weighted, sum to 1): ${goals}
 
 Today is ${date}. ${currently}

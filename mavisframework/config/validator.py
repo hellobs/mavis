@@ -97,6 +97,22 @@ def validate_agents(agents: Dict[str, dict], maze_cfg: Optional[dict] = None,
         if "coord" in cfg and not isinstance(cfg["coord"], list):
             errors.append(f"{prefix}.coord 必须是数组 [x, y]")
 
+        # 目标权重:goals 各值应为非负数字,总和应为 1(允许缺失,缺失时框架等权处理)
+        if "goals" in cfg:
+            goals = cfg["goals"]
+            if not isinstance(goals, dict) or not goals:
+                errors.append(f"{prefix}.goals 应为非空 dict(目标:权重)")
+            else:
+                try:
+                    total = sum(float(v) for v in goals.values())
+                except (TypeError, ValueError):
+                    errors.append(f"{prefix}.goals 权重值必须都是数字")
+                    total = None
+                if total is not None and abs(total - 1.0) > 1e-6:
+                    errors.append(
+                        f"{prefix}.goals 权重总和应为 1,得到 {round(total, 4)}"
+                    )
+
         # 地图一致性
         if "coord" in cfg and maze_cfg:
             if not _is_in_map(cfg["coord"], maze_cfg):

@@ -100,8 +100,11 @@ class Agent:
         # prompt
         from mavisframework.prompt import Scratch
 
+        # 目标权重(goals)注入:合并进 scratch 配置,供 base_desc 提示词使用
+        _scratch_cfg = dict(config.get("scratch", {}))
+        _scratch_cfg["goals"] = config.get("goals", {})
         self.scratch = Scratch(
-            self.name, config["currently"], config["scratch"], timer=self._timer
+            self.name, config["currently"], _scratch_cfg, timer=self._timer
         )
 
         # status

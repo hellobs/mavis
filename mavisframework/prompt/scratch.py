@@ -35,6 +35,14 @@ class Scratch:
 
         return filled_content
 
+    def _goals_desc(self) -> str:
+        """把目标权重格式化为 '目标:权重' 列表(如 '收益最大化: 0.7, 风险规避: 0.3')"""
+        goals = (self.config or {}).get("goals", {})
+        if not goals:
+            return "None"
+        parts = [f"{k}: {v}" for k, v in goals.items()]
+        return ", ".join(parts)
+
     def _base_desc(self):
         return self.build_prompt(
             "base_desc",
@@ -45,6 +53,7 @@ class Scratch:
                 "learned": self.config["learned"],
                 "lifestyle": self.config["lifestyle"],
                 "daily_plan": self.config["daily_plan"],
+                "goals": self._goals_desc(),
                 "date": self._timer.daily_format_cn(),
                 "currently": self.currently,
             }

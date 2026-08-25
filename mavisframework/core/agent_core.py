@@ -302,7 +302,8 @@ class Agent:
             # AI 工具角色全天在线:强制无睡觉时段(wake_up=0)
             if self.role_type == "ai_tool":
                 wake_up = 0
-                init_schedule = ["随时准备与用户交流投资问题"]
+                # 日程来自业务配置(currently),框架中立:无业务描述时用中性默认
+                init_schedule = [self.scratch.currently or "随时准备为用户服务"]
             # make daily schedule
             hours = [f"{i}:00" for i in range(24)]
             seed = [(h, "睡觉") for h in hours[:wake_up]]

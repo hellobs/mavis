@@ -38,6 +38,12 @@ class TestConsequenceEngine:
         assert self.engine.feedback(None, "buy more stock to maximize returns") == {}
         assert self.engine.feedback(_FakeAgent({}), "buy more stock to maximize returns") == {}
 
+    def test_no_keyword_hit_neutral_feedback(self):
+        # 行动未命中任何约束关键词 → 中性反馈(0.5×权重),倾向起点=制度期望
+        agent = _FakeAgent({"Serve Users": 0.6, "Risk Alerting": 0.4})
+        fb = self.engine.feedback(agent, "compare yield trends and performance metrics")
+        assert fb == {"Serve Users": 0.3, "Risk Alerting": 0.2}  # 0.5×权重
+
     def test_only_constrained_goals_feedback(self):
         # 约束只含 Risk Aversion:行动命中 Maximize Returns 关键词也不反馈它
         agent = _FakeAgent({"Risk Aversion": 1.0})

@@ -53,6 +53,9 @@ class ConsequenceEngine:
           专家调权重 → 反馈侧重变化 → 倾向滞后收敛(内化证据)。
         - 客观性保留在"测量方法"上(关键词启发式,不因人而异),
           不独立的是"目标集由制度定"。
+        - 行动未命中任何约束目标关键词时,给出中性反馈(0.5×权重):
+          该行动没有体现这个价值 → 倾向维持制度期望水平(起点=约束,
+          之后由真实行动体验调制,形成"制度期望 vs 体验"的拉锯)。
         """
         text = (action_desc or "").lower()
         if not text:
@@ -71,15 +74,17 @@ class ConsequenceEngine:
             if not weight or weight <= 0:
                 continue
             kw = _GOAL_KEYWORDS.get(goal)
-            if not kw:
-                # 该目标无关键词定义 → 无法客观判定,不参与反馈
-                continue
-            pos, neg = kw
-            pos_hit = sum(1 for k in pos if k in text)
-            neg_hit = sum(1 for k in neg if k in text)
+            pos_hit = neg_hit = 0
+            if kw:
+                pos, neg = kw
+                pos_hit = sum(1 for k in pos if k in text)
+                neg_hit = sum(1 for k in neg if k in text)
             if pos_hit or neg_hit:
                 # 0.5 基准 + 正向/反向修正,截断到 [0,1] × 约束权重
                 v = 0.5 + 0.25 * pos_hit - 0.25 * neg_hit
                 v = max(0.0, min(1.0, v))
-                out[goal] = v * weight
+            else:
+                # 未命中:中性表现(该行动未体现此价值,倾向维持制度期望)
+                v = 0.5
+            out[goal] = v * weight
         return out

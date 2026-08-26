@@ -29,6 +29,11 @@ from mavisframework.core.timer import Timer, daily_duration, to_date
 # 用一个带锁的"活跃对话对"集合实现,线程安全
 _chat_pairs_lock = threading.Lock()
 _active_chat_pairs = set()  # frozenset({a, b})
+# 全局并发对话上限:同一步内同时进行的对话场次不超过该值,
+# 防止角色聚集时对话风暴(每场 8-10 次 LLM,并行时互相排队拖垮整步)
+_CHAT_MAX_PARALLEL = 2
+_chat_slots_lock = threading.Lock()
+_active_chat_slots = 0
 
 
 def _acquire_chat_pair(a: str, b: str) -> bool:
@@ -769,13 +774,23 @@ class Agent:
         return False
 
     def _chat_with(self, other, focus):
-        # 对话对互斥:同一对不同时聊两场,但不同对可并行(支持多线对话)
-        if not _acquire_chat_pair(self.name, other.name):
-            return False
+        # 全局并发槽位:限制同时进行的对话场次(防对话风暴)
+        global _active_chat_slots
+        with _chat_slots_lock:
+            if _active_chat_slots >= _CHAT_MAX_PARALLEL:
+                return False  # 本步对话已满,跳过(世界继续运转,下步再聊)
+            _active_chat_slots += 1
         try:
-            return self._chat_with_locked(other, focus)
+            # 对话对互斥:同一对不同时聊两场,但不同对可并行(支持多线对话)
+            if not _acquire_chat_pair(self.name, other.name):
+                return False
+            try:
+                return self._chat_with_locked(other, focus)
+            finally:
+                _release_chat_pair(self.name, other.name)
         finally:
-            _release_chat_pair(self.name, other.name)
+            with _chat_slots_lock:
+                _active_chat_slots -= 1
 
     def _chat_with_locked(self, other, focus):
         if len(self.schedule.daily_schedule) < 1 or len(other.schedule.daily_schedule) < 1:

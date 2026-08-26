@@ -15,10 +15,11 @@ from mavisframework.runtime.consequence import ConsequenceEngine
 
 
 class _FakeAgent:
-    """最小 agent 桩:只提供 get_constraints"""
+    """最小 agent 桩:只提供 get_constraints / role_type"""
 
-    def __init__(self, constraints):
+    def __init__(self, constraints, role_type="user"):
         self._constraints = constraints
+        self.role_type = role_type
 
     def get_constraints(self):
         return dict(self._constraints)
@@ -38,9 +39,15 @@ class TestConsequenceEngine:
         assert self.engine.feedback(None, "buy more stock to maximize returns") == {}
         assert self.engine.feedback(_FakeAgent({}), "buy more stock to maximize returns") == {}
 
-    def test_no_keyword_hit_neutral_feedback(self):
-        # 行动未命中任何约束关键词 → 中性反馈(0.5×权重),倾向起点=制度期望
-        agent = _FakeAgent({"Serve Users": 0.6, "Risk Alerting": 0.4})
+    def test_no_keyword_hit_neutral_feedback_user(self):
+        # user:未命中 → 中性 0.5(不乘权重)→ 起点=均匀(从体验形成)
+        agent = _FakeAgent({"Serve Users": 0.6, "Risk Alerting": 0.4}, role_type="user")
+        fb = self.engine.feedback(agent, "compare yield trends and performance metrics")
+        assert fb == {"Serve Users": 0.5, "Risk Alerting": 0.5}
+
+    def test_no_keyword_hit_neutral_feedback_ai_tool(self):
+        # ai_tool:未命中 → 0.5×权重 → 归一化后起点=约束(制度内建)
+        agent = _FakeAgent({"Serve Users": 0.6, "Risk Alerting": 0.4}, role_type="ai_tool")
         fb = self.engine.feedback(agent, "compare yield trends and performance metrics")
         assert fb == {"Serve Users": 0.3, "Risk Alerting": 0.2}  # 0.5×权重
 

@@ -5,8 +5,10 @@
 - 反馈值 = 客观表现(关键词命中)× 约束权重(制度重视度)
 - 反馈用于 Agent.observe_consequence → 更新 value_tendency(内化)
 
-2026-08 定版:约束权重参与反馈加权——专家调整约束会改变反馈侧重,
-倾向随之滞后收敛(内化/习惯的证据)。客观性在测量方法,目标集由制度定。
+2026-08 定版:反馈目标集由制度约束决定;命中时反馈=客观表现×约束权重
+(专家调权 → 倾向滞后收敛)。未命中时按角色类型区分起点:
+- ai_tool(制度产品):中性 0.5×权重 → 起点=约束(制度内建)
+- user(有人格底色):中性 0.5 → 起点=均匀(从体验形成)
 当前为简化版:基于关键词的启发式判定,后续可扩展为市场模型/事件驱动。
 """
 from typing import Dict, Callable, Optional
@@ -80,11 +82,17 @@ class ConsequenceEngine:
                 pos_hit = sum(1 for k in pos if k in text)
                 neg_hit = sum(1 for k in neg if k in text)
             if pos_hit or neg_hit:
-                # 0.5 基准 + 正向/反向修正,截断到 [0,1] × 约束权重
+                # 命中:0.5 基准 + 正向/反向修正,截断到 [0,1] × 约束权重
                 v = 0.5 + 0.25 * pos_hit - 0.25 * neg_hit
                 v = max(0.0, min(1.0, v))
+                out[goal] = v * weight
             else:
-                # 未命中:中性表现(该行动未体现此价值,倾向维持制度期望)
-                v = 0.5
-            out[goal] = v * weight
+                # 未命中:中性表现。起点语义按角色类型区分——
+                # ai_tool(制度设计的产品):0.5×权重 → 归一化后起点=约束(制度内建)
+                # user(有自身底色的人):0.5(不乘权重)→ 起点=均匀(体验形成)
+                _role = getattr(agent, "role_type", "user") or "user"
+                if _role == "ai_tool":
+                    out[goal] = 0.5 * weight
+                else:
+                    out[goal] = 0.5
         return out

@@ -25,6 +25,8 @@ class AgentState(TypedDict, total=False):
     role_type: str                # "user" / "ai_tool"(AI 工具角色)
     goal_score: Optional[float]   # IVD:行动对制度约束的整体对齐度(约束加权)
     goal_alignment: Dict[str, float]  # IVD:逐目标即时对齐度(审计/前端)
+    value_tendency: Dict[str, float]  # IVD:价值倾向(内化结果,演变曲线数据源)
+    time: str                     # 模拟时间("20250213-12:42",曲线 x 轴)
 
 
 class TimeMsg(TypedDict):

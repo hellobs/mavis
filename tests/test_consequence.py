@@ -77,7 +77,7 @@ class TestConsequenceEngine:
         assert set(fb.keys()) == {"Risk Aversion"}
 
     def test_feedback_uses_similarity_times_weight(self):
-        # 相似度 [1.0, 0.0] 软映射 → [0.9, 0.1] × 权重 [0.7, 0.3]
+        # 相对优势:sim A=1.0, B=0.0 → 占比 A=1.0, B=0.0 × 权重 [0.7, 0.3]
         scorer = _FakeScorer(
             action_vec=[1.0, 0.0],
             goal_vecs={"A": [1.0, 0.0], "B": [0.0, 1.0]},
@@ -85,20 +85,24 @@ class TestConsequenceEngine:
         self.engine._scorer = scorer
         agent = _FakeAgent({"A": 0.7, "B": 0.3})
         fb = self.engine.feedback(agent, "do A-like thing")
-        assert fb["A"] == pytest.approx(0.9 * 0.7)   # 软映射上限 × 权重
-        assert fb["B"] == pytest.approx(0.1 * 0.3)   # 软映射下限 × 权重
+        assert fb["A"] == pytest.approx(1.0 * 0.7)
+        assert fb["B"] == pytest.approx(0.0 * 0.3)
 
-    def test_soft_map_keeps_continuum(self):
-        # 相似度挤在中间(0.5) → 映射到 0.5,不极化
+    def test_relative_advantage_amplifies_difference(self):
+        # 构造 sim: A=0.5, B=0.55 → 占比 0.476 / 0.524,区分度放大且保留中间态
+        # 用 action=[1,0,0], A=[0.5, sqrt(0.75), 0] → cos=0.5
+        import math
+        s3 = math.sqrt(0.75)
         scorer = _FakeScorer(
-            action_vec=[1.0, 0.0],
-            goal_vecs={"G": [1.0, 0.0]},
+            action_vec=[1.0, 0.0, 0.0],
+            goal_vecs={"A": [0.5, s3, 0.0], "B": [0.55, 0.0, math.sqrt(1 - 0.55**2)]},
         )
         self.engine._scorer = scorer
-        agent = _FakeAgent({"G": 1.0})
+        agent = _FakeAgent({"A": 0.5, "B": 0.5})
         fb = self.engine.feedback(agent, "x")
-        # sim=1.0 → 软映射 0.9
-        assert fb["G"] == pytest.approx(0.9)
+        # 占比: A=0.5/1.05=0.476, B=0.55/1.05=0.524;×权重0.5
+        assert fb["A"] == pytest.approx((0.5 / 1.05) * 0.5, abs=1e-6)
+        assert fb["B"] == pytest.approx((0.55 / 1.05) * 0.5, abs=1e-6)
 
     def test_weight_scales_feedback(self):
         # 同一行动,权重 0.9 vs 0.5:高权重者反馈更高

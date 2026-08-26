@@ -8,6 +8,8 @@
 
 2026-08 定版:
 - 目标集由制度约束决定(约束外目标不进入反馈)
+- 反馈 = embedding 相似度 min-max 对比拉伸 × 约束权重
+  (原始余弦相似度挤在 0.35-0.65,拉伸放大相对差异,曲线才可见起伏)
 - 专家调权重 → 反馈侧重变化 → 倾向滞后收敛(内化证据)
 - 起点由 Agent 的 initial_tendency(人物底色)决定,ai_tool 无底色时
   从第一次体验起由 embedding 相似度塑造(其行动天然贴合制度目标)
@@ -69,7 +71,7 @@ class ConsequenceEngine:
             a_vec = scorer.embed(text)
             if a_vec is None:
                 raise RuntimeError("action embedding failed")
-            out = {}
+            sims = {}
             for goal, weight in constraints.items():
                 if not weight or weight <= 0:
                     continue
@@ -77,7 +79,19 @@ class ConsequenceEngine:
                 if g_vec is None:
                     continue
                 sim = scorer._cosine(a_vec, g_vec)
-                v = max(0.0, min(1.0, sim))  # 截断到 [0,1]
+                sims[goal] = max(0.0, min(1.0, sim))  # 截断到 [0,1]
+            if not sims:
+                return {g: 0.5 * w for g, w in constraints.items() if w and w > 0}
+            # 对比拉伸:同一次行动的各目标相似度 min-max 归一化到 [0,1],
+            # 放大相对差异(原始余弦相似度挤在 0.35-0.65,差异被淹没)
+            lo, hi = min(sims.values()), max(sims.values())
+            spread = hi - lo
+            out = {}
+            for goal, weight in constraints.items():
+                if weight <= 0 or goal not in sims:
+                    continue
+                s = sims[goal]
+                v = (s - lo) / spread if spread > 1e-6 else 0.5
                 out[goal] = v * weight
             return out
         except Exception:

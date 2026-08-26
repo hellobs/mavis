@@ -146,7 +146,43 @@ transport-agnostic (SSE / WebSocket both work).
 | `SnapshotMsg` | full snapshot | new connections catch-up |
 | `DecisionEvent` | decision events | governance platform / expert UI |
 
-## 7. Usage
+## 7. IVD: Value Formation & Governance (experimental)
+
+The framework supports a governance layer where an agent's *value tendency*
+(what it has internalized from experience) can be observed and influenced by
+external *institutional constraints* — without directly manipulating behavior.
+
+Three sources shape `value_tendency` (a normalized `{goal: weight}` map):
+
+| Source | Where | Role |
+|---|---|---|
+| `initial_tendency` | `agent.json` (agent body) | persona baseline — who the agent *is* (e.g. an impulsive trader) |
+| constraints | `governance.json` (institutional layer) | what the institution *expects* (expert-adjustable) |
+| experience | `ConsequenceEngine` feedback → sliding window | what the agent *learns* from action outcomes |
+
+Key semantics:
+
+- **ai_tool roles** (e.g. an AI advisor product) start at the constraints:
+  the institution *built* them that way. **user roles** start at their
+  `initial_tendency` persona baseline (or uniform if unset), then experience
+  modulates it.
+- **Inertia blend**: `tendency = α·persona + (1−α)·experience`,
+  `α = max(0.1, 1 − experiences/20)` — starts at the persona, experience takes
+  over, but character leaves a 10% residue (personality is sticky).
+- **Constraints are expectations, not controls**: they never enter the prompt
+  and never force action regeneration. They only weight the consequence
+  feedback, so an expert adjustment is *felt* by the agent only through later
+  experience (lagged convergence = internalization evidence).
+- **Auditable**: `goal_alignment` (instant), `value_tendency` (accumulated),
+  and `interventions.json` (expert edits, with the simulation time of each
+  intervention) are all exported for audit.
+
+Consequence feedback is a keyword-heuristic stand-in for a market model
+(see `runtime/consequence.py`); the interface is a plain callable
+`(agent, action_desc) -> {goal: feedback}`, so it can be swapped for a real
+simulated market later.
+
+## 8. Usage
 
 The framework's `Game` + `Simulator` + `LiveCompressor` drive the complete
 simulation (parallel thinking / checkpoints / decision export / WebSocket
@@ -158,7 +194,7 @@ A complete demo platform is [Provenance](https://github.com/hellobs/provenance):
 its real-time service `live_fastapi.py` is a reference implementation of the
 framework route (FastAPI + WebSocket consuming framework contract messages).
 
-## 8. Unity Migration
+## 9. Unity Migration
 
 ```
 framework core (agent/memory/pathfinding/decision export)  ← zero change
@@ -170,7 +206,7 @@ frontend: Phaser → Unity                      ← rendering only (same protoco
 The framework is unaware of the concrete frontend implementation — this is the
 structural guarantee that Phaser is not embedded in the framework.
 
-## 9. Repository Layout
+## 10. Repository Layout
 
 ```
 mavisframework/          # framework package (pip package; pyproject at repo root)

@@ -49,6 +49,9 @@ def _release_chat_pair(a: str, b: str) -> None:
 # 对话逐句回调:由外部(如 live 服务)设置,每生成一句话实时推送
 chat_callback = None
 
+# 事件重要性打分缓存(进程级):同一事件描述只调一次 LLM,后续复用
+_POIGNANCY_CACHE = {}
+
 
 class Agent:
     """框架版 Agent(与旧 modules.agent.Agent 行为对齐,依赖注入)"""
@@ -275,9 +278,10 @@ class Agent:
             wsum = sum(weights)
             tendency[g] = sum(v * wt for v, wt in zip(vals, weights)) / wsum
         # 人物底色惯性混合:起步=人设,体验接管,性格有残余(α 随累计体验衰减)
+        # α = max(0.1, 1 - n/8):约 8 次体验后体验主导,性格保留 10% 残余
         base = self.initial_tendency or {}
         if base:
-            alpha = max(0.1, 1.0 - self._tendency_obs / 20.0)
+            alpha = max(0.1, 1.0 - self._tendency_obs / 8.0)
             all_goals = set(goals) | set(base.keys())
             for g in all_goals:
                 tendency[g] = alpha * (base.get(g, 0.0)) + (1 - alpha) * tendency.get(g, 0.0)
@@ -636,20 +640,41 @@ class Agent:
             address = self._action_cache[cache_key]
         else:
             address = self._resolve_action_address(describes)
+            # 限长:超过 64 条清空(计划段数量有限,防内存无限增长)
+            if len(self._action_cache) >= 64:
+                self._action_cache.clear()
             self._action_cache[cache_key] = address
 
         # 价值反馈观测:计算行动对各目标的语义对齐度(不干预行为)
         # IVD 重构:约束是期望,不直接指挥 AI;这里只"观测+记录",
         # 供后果反馈(consequence)与倾向内化(value_tendency)使用。
+        # 计划段缓存:同一行动描述的对齐度不重复算(embedding 也费时)
         action_desc = describes[-1]
         constraints = self.get_constraints()
+        _align_key = (tuple(sorted(constraints.items())) if constraints else (), action_desc)
         if constraints and self._goal_scorer_available():
-            self.status["goal_alignment"] = self.goal_alignment(action_desc)
+            if not hasattr(self, "_align_cache"):
+                self._align_cache = {}
+            if _align_key in self._align_cache:
+                self.status["goal_alignment"] = self._align_cache[_align_key]
+            else:
+                self.status["goal_alignment"] = self.goal_alignment(action_desc)
+                if len(self._align_cache) >= 64:
+                    self._align_cache.clear()
+                self._align_cache[_align_key] = self.status["goal_alignment"]
         else:
             self.status["goal_alignment"] = {}
 
         event = self.make_event(self.name, action_desc, address)
-        obj_describe = self.completion("describe_object", address[-1], action_desc)
+        # describe_object 计划段缓存:同一行动描述只调一次 LLM(行动稳定时复用)
+        _desc_key = (address[-1] if address else "", action_desc)
+        if not hasattr(self, "_describe_cache"):
+            self._describe_cache = {}
+        if _desc_key in self._describe_cache:
+            obj_describe = self._describe_cache[_desc_key]
+        else:
+            obj_describe = self.completion("describe_object", address[-1], action_desc)
+            self._describe_cache[_desc_key] = obj_describe
         obj_event = self.make_event(address[-1], obj_describe, address)
 
         event.emoji = f"{de_plan['describe']}"
@@ -908,7 +933,15 @@ class Agent:
         elif e_type == "chat":
             poignancy = self.completion("poignancy_chat", event)
         else:
-            poignancy = self.completion("poignancy_event", event)
+            # 事件级缓存:同一事件描述全局只调一次 LLM 打重要性分,
+            # 后续感知到相同事件直接复用(大幅减少 LLM 调用,行为语义不变)
+            desc = str(event)
+            cached = _POIGNANCY_CACHE.get(desc)
+            if cached is not None:
+                poignancy = cached
+            else:
+                poignancy = self.completion("poignancy_event", event)
+                _POIGNANCY_CACHE[desc] = poignancy
         self.logger.debug("{} add associate {}".format(self.name, event))
         return self.associate.add_node(
             e_type,

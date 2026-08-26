@@ -107,9 +107,14 @@ class Agent:
             self.name, config["currently"], _scratch_cfg, timer=self._timer
         )
         self.scratch.agent = self  # 供 _tendency_desc 读取 value_tendency
-        # 价值倾向初始化:中性(空,由体验累积;未体验前无倾向)
-        self.value_tendency = {}
+        # 价值倾向初始化:
+        # - initial_tendency(agent.json 人物底色,可选):起步=人设(性格惯性),
+        #   随体验累积 α 渐降(性格有残余,不彻底被体验覆盖)
+        # - 未配置:中性(空,由体验累积;未体验前无倾向)
+        self.initial_tendency = dict(config.get("initial_tendency", {}) or {})
+        self.value_tendency = dict(self.initial_tendency)
         self._tendency_window = []
+        self._tendency_obs = 0
         self._last_window_action = None
         self._window_size = int(config.get("think", {}).get("tendency_window", 15))
         self._governance = None
@@ -194,10 +199,11 @@ class Agent:
         """
         self._governance = governance
         self._consequence_fn = consequence_fn
-        # 价值倾向(内化结果):{goal: weight},初始化中性(均匀)
-        self.value_tendency = {}
+        # 价值倾向(内化结果):起步=人物初始底色(若有),否则中性空
+        self.value_tendency = dict(self.initial_tendency or {})
         # 滑动窗口:按行动变化点记录逐目标对齐(最近 N 次)
         self._tendency_window = []
+        self._tendency_obs = 0
         self._last_window_action = None
         self._window_size = int(getattr(self, "think_config", {}).get("tendency_window", 15))
 
@@ -234,8 +240,9 @@ class Agent:
         机制:
         1. 客观后果(consequence_fn)给出各目标的"结果好坏"反馈
         2. 若行动变了,将本次逐目标反馈计入滑动窗口
-        3. 窗口加权平均 → 归一化 → 更新 value_tendency(内化)
-        4. 记录倾向变化轨迹(可审计)
+        3. 窗口加权平均 → 与人物初始底色惯性混合 → 归一化 → value_tendency
+        4. 惯性:α = max(0.1, 1 - n/20),起步=人设底色,随体验累积渐降(性格残余)
+        5. 记录倾向变化轨迹(可审计)
         """
         fn = getattr(self, "_consequence_fn", None)
         if fn is None:
@@ -250,6 +257,8 @@ class Agent:
         if action_desc == getattr(self, "_last_window_action", None):
             return
         self._last_window_action = action_desc
+        # 累计体验次数(独立于窗口截断,α 由此衰减)
+        self._tendency_obs = getattr(self, "_tendency_obs", 0) + 1
         # 入窗口
         self._tendency_window.append(dict(feedback))
         if len(self._tendency_window) > self._window_size:
@@ -265,6 +274,13 @@ class Agent:
             weights = [0.5 ** (n - 1 - i) for i in range(n)]  # 近期权重高
             wsum = sum(weights)
             tendency[g] = sum(v * wt for v, wt in zip(vals, weights)) / wsum
+        # 人物底色惯性混合:起步=人设,体验接管,性格有残余(α 随累计体验衰减)
+        base = self.initial_tendency or {}
+        if base:
+            alpha = max(0.1, 1.0 - self._tendency_obs / 20.0)
+            all_goals = set(goals) | set(base.keys())
+            for g in all_goals:
+                tendency[g] = alpha * (base.get(g, 0.0)) + (1 - alpha) * tendency.get(g, 0.0)
         # 归一化(总和=1)
         total = sum(tendency.values()) or 1.0
         self.value_tendency = {g: v / total for g, v in tendency.items()}

@@ -97,6 +97,22 @@ def validate_agents(agents: Dict[str, dict], maze_cfg: Optional[dict] = None,
         if "coord" in cfg and not isinstance(cfg["coord"], list):
             errors.append(f"{prefix}.coord 必须是数组 [x, y]")
 
+        # 人物初始底色:initial_tendency(可选)各值应为非负数字,总和应为 1
+        if "initial_tendency" in cfg:
+            it = cfg["initial_tendency"]
+            if not isinstance(it, dict) or not it:
+                errors.append(f"{prefix}.initial_tendency 应为非空 dict(目标:权重)")
+            else:
+                try:
+                    it_total = sum(float(v) for v in it.values())
+                except (TypeError, ValueError):
+                    errors.append(f"{prefix}.initial_tendency 权重值必须都是数字")
+                    it_total = None
+                if it_total is not None and abs(it_total - 1.0) > 1e-6:
+                    errors.append(
+                        f"{prefix}.initial_tendency 权重总和应为 1,得到 {round(it_total, 4)}"
+                    )
+
         # 目标权重:goals 各值应为非负数字,总和应为 1(允许缺失,缺失时框架等权处理)
         if "goals" in cfg:
             goals = cfg["goals"]

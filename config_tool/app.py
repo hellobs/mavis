@@ -145,7 +145,9 @@ def build_agent_json(form: dict) -> dict:
             "authority": _split_lines(form.get("authority", "")),
             "rules": _split_lines(form.get("rules", "")),
         },
-        "goals": _parse_goals(form.get("goals", "")),
+        # IVD:goals 已外部化到 governance.json(制度层);agent.json 只写
+        # initial_tendency(人物初始底色,可选)——人设起点,由体验调制
+        "initial_tendency": _parse_goals(form.get("initial_tendency", "")),
         "scratch": scratch,
         "spatial": {
             "address": {"living_area": living_area},
@@ -306,7 +308,7 @@ def upgrade_agent(name: str, extra: dict = None) -> str:
     """把 frontend/static/assets/village/agents/<name>/agent.json 升级为全字段
 
     - 保留:portrait/coord/currently/scratch/spatial 原值
-    - 新增:role_type(默认 user)/organization/duty/goals/values/intervention
+    - 新增:role_type(默认 user)/organization/duty/initial_tendency/values/intervention
     - extra 可覆盖新增字段(如 role_type 指定 ai_tool)
     """
     agent_dir = os.path.join(AGENTS_ROOT, name)
@@ -318,6 +320,8 @@ def upgrade_agent(name: str, extra: dict = None) -> str:
         agent_json = json.load(f)
 
     extra = extra or {}
+    # 清理 IVD 重构前的旧字段(goals 已外部化到 governance.json)
+    agent_json.pop("goals", None)
     # 补全新字段(仅缺省时补,已有值保留)
     agent_json.setdefault("role_type", extra.get("role_type", "user"))
     agent_json.setdefault("organization", extra.get("organization", ""))
@@ -327,7 +331,7 @@ def upgrade_agent(name: str, extra: dict = None) -> str:
         "authority": extra.get("authority", []),
         "rules": extra.get("rules", []),
     })
-    agent_json.setdefault("goals", extra.get("goals", {}))
+    agent_json.setdefault("initial_tendency", extra.get("initial_tendency", {}))
 
     # 校验(复用 MAVIS validator)
     maze = _load_maze()

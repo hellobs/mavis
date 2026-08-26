@@ -19,7 +19,7 @@
         <td>{{ a.duty.position if a.duty else '' }}</td>
         <td>{{ a.currently }}</td>
         <td>
-            {% if a.goals %}{% for k, v in a.goals.items() %}{{ k }}:{{ v }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+            {% if a.initial_tendency %}{% for k, v in a.initial_tendency.items() %}{{ k }}:{{ v }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
         </td>
     </tr>
     <tr><td colspan="5" style="padding:0;border:none;">
@@ -35,8 +35,8 @@
             <div class="field"><span class="label">权限</span>{{ a.duty.authority | join('; ') }}</div>
             <div class="field"><span class="label">规则</span>{{ a.duty.rules | join('; ') }}</div>
             {% endif %}
-            {% if a.goals %}
-            <div class="field"><span class="label">目标</span>{% for k, v in a.goals.items() %}{{ k }}:{{ v }} {% endfor %}</div>
+            {% if a.initial_tendency %}
+            <div class="field"><span class="label">初始底色</span>{% for k, v in a.initial_tendency.items() %}{{ k }}:{{ v }} {% endfor %}</div>
             {% endif %}
             {% if a.scratch %}
             <div class="field"><span class="label">性格</span>{{ a.scratch.innate or '' }}</div>

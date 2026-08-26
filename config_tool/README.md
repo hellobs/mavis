@@ -80,7 +80,7 @@ D:\zzr\provenance\provenance\scenarios\investment\story.json
 | 接口 | 说明 |
 |---|---|
 | `POST /api/generate` | 表单数据 → 生成 agent.json → 校验 → 写入 agents 目录 |
-| `POST /api/upgrade` | 升级现有角色:读旧 agent.json,补全缺失字段(如老角色补 role_type/duty/goals) |
+| `POST /api/upgrade` | 升级现有角色:读旧 agent.json,补全缺失字段(如老角色补 role_type/duty/initial_tendency,清理旧 goals) |
 | `POST /api/relationship` | 追加一条关系(必填:两个角色、关系类型) |
 | `POST /api/relationship/delete` | 按行号 index 删除关系 |
 | `POST /api/story` | 追加一条剧情(必填:time/event_type/content;time 须为 00:00-23:59) |
@@ -98,6 +98,6 @@ D:\zzr\provenance\provenance\scenarios\investment\story.json
 
 ## 设计说明
 
-- 角色配置是"三层":行为层(人设/关系/剧情)+ 制度层(组织/职责/权限/规则)+ 价值层(目标)
+- 角色配置是"三层":行为层(人设/关系/剧情)+ 制度层(组织/职责/权限/规则)+ 价值层(人物初始底色 initial_tendency;制度约束 governance.json 由治理面板维护)
 - 关系 → `scenarios/<business>/relationships.json`,剧情 → `scenarios/<business>/story.json`,与角色独立维护
 - 迁移 Unity 时:角色→贴图的映射依赖需在 Unity 端同样处理(读 `texture_ref`)

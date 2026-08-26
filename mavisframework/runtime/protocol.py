@@ -22,6 +22,9 @@ class AgentState(TypedDict, total=False):
     location: str                 # 地址(业务语义,如 "资料室:资料桌")
     currently: str                # 人设当前状态
     conversation: Dict[str, str]  # 该时间点的对话文本
+    role_type: str                # "user" / "ai_tool"(AI 工具角色)
+    goal_score: Optional[float]   # IVD:行动对制度约束的整体对齐度(约束加权)
+    goal_alignment: Dict[str, float]  # IVD:逐目标即时对齐度(审计/前端)
 
 
 class TimeMsg(TypedDict):
@@ -68,6 +71,9 @@ class DecisionEvent(TypedDict, total=False):
     location: str                 # 地址
     predicate: str                # "此时" / "对话" / "正在"
     poignancy: int                # 事件重要性分
+    goal_score: Optional[float]   # IVD:行动对约束的整体对齐度(alignment 均值)
+    goal_alignment: Dict[str, float]  # IVD:逐目标即时对齐(审计)
+    value_tendency: Dict[str, float]  # IVD:内化的价值倾向(审计,体验累积)
     involves: List[str]           # 涉他(对话/协作对象)
     has_conversation: bool
     category: Optional[str]       # 分类(平台全权,导出留空)

@@ -164,10 +164,9 @@ class Simulator:
 
                     # IVD:客观后果反馈 → 更新价值倾向(内化)
                     # 行动描述作为"做了什么",consequence_fn 给出各目标的反馈
-                    action_desc = str(
-                        agent.action.get_event().describe
-                        if agent.action else ""
-                    )
+                    action_desc = ""
+                    if agent.action and agent.action.event:
+                        action_desc = str(agent.action.event.get_describe())
                     agent.observe_consequence(action_desc)
 
                     # 逐 Agent 回调:单个 Agent 思考完成即可推送(实时可视化)

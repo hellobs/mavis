@@ -44,9 +44,11 @@ def generate_decision_events(
 
     files = sorted(
         f for f in os.listdir(checkpoints_folder)
-        if f.endswith(".json") and f != "conversation.json"
+        if f.endswith(".json")
+        and f not in ("conversation.json", "decisions.json", "interventions.json")
     )
     events: List[DecisionEvent] = []
+    _ev_idx = 0
     for idx, fname in enumerate(files):
         with open(os.path.join(checkpoints_folder, fname), "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -54,20 +56,31 @@ def generate_decision_events(
         step = data.get("step", 0)
         involves = extract_involves(conversation, time_key)
         for agent_name, ad in data.get("agents", {}).items():
+            _ev_idx += 1
             ev = ad.get("action", {}).get("event", {})
             predicate = ev.get("predicate", "")
             has_chat = any(agent_name in i for i in [involves])
+            status = ad.get("status", {})
+            status = status if isinstance(status, dict) else {}
+            alignment = status.get("goal_alignment") or {}
+            tendency = status.get("value_tendency") or {}
+            # IVD:goal_score = 行动对约束的整体对齐度(逐目标 alignment 均值)
+            goal_score = None
+            if alignment:
+                goal_score = sum(alignment.values()) / len(alignment)
             events.append({
-                "id": "e-%04d" % (idx + 1),
+                "id": "e-%04d" % _ev_idx,
                 "step": step,
                 "time": time_key,
                 "agent": agent_name,
                 "role": roles.get(agent_name, ""),
                 "action": ev.get("describe", ""),
-                "location": "，".join(ev.get("address", [])),
+                "location": ",".join(ev.get("address", [])),
                 "predicate": predicate,
-                "poignancy": ad.get("status", {}).get("poignancy", 0) if isinstance(ad.get("status"), dict) else 0,
-                "goal_score": ad.get("status", {}).get("goal_score", None) if isinstance(ad.get("status"), dict) else None,
+                "poignancy": status.get("poignancy", 0),
+                "goal_score": goal_score,
+                "goal_alignment": alignment,       # 逐目标即时对齐(审计)
+                "value_tendency": tendency,        # 内化的价值倾向(审计)
                 "involves": involves,
                 "has_conversation": has_chat,
                 "category": None,
@@ -90,7 +103,8 @@ def export_decision_stream(
     start_time = ""
     files = sorted(
         f for f in os.listdir(checkpoints_folder)
-        if f.endswith(".json") and f != "conversation.json"
+        if f.endswith(".json")
+        and f not in ("conversation.json", "decisions.json", "interventions.json")
     )
     if files:
         with open(os.path.join(checkpoints_folder, files[0]), "r", encoding="utf-8") as f:

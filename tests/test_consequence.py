@@ -77,7 +77,7 @@ class TestConsequenceEngine:
         assert set(fb.keys()) == {"Risk Aversion"}
 
     def test_feedback_uses_similarity_times_weight(self):
-        # 相似度 [1.0, 0.0] 拉伸后 → [1.0, 0.0] × 权重 [0.7, 0.3]
+        # 相似度 [1.0, 0.0] 软映射 → [0.9, 0.1] × 权重 [0.7, 0.3]
         scorer = _FakeScorer(
             action_vec=[1.0, 0.0],
             goal_vecs={"A": [1.0, 0.0], "B": [0.0, 1.0]},
@@ -85,20 +85,20 @@ class TestConsequenceEngine:
         self.engine._scorer = scorer
         agent = _FakeAgent({"A": 0.7, "B": 0.3})
         fb = self.engine.feedback(agent, "do A-like thing")
-        assert fb["A"] == pytest.approx(0.7)   # 拉伸 1.0 × 0.7
-        assert fb["B"] == pytest.approx(0.0)   # 拉伸 0.0 × 0.3
+        assert fb["A"] == pytest.approx(0.9 * 0.7)   # 软映射上限 × 权重
+        assert fb["B"] == pytest.approx(0.1 * 0.3)   # 软映射下限 × 权重
 
-    def test_contrast_stretch_amplifies_difference(self):
-        # 相似度挤在 [0.986, 1.0] → 拉伸到 [0, 1],区分度放大
+    def test_soft_map_keeps_continuum(self):
+        # 相似度挤在中间(0.5) → 映射到 0.5,不极化
         scorer = _FakeScorer(
-            action_vec=[0.5, 0.5],
-            goal_vecs={"A": [0.5, 0.4], "B": [0.5, 0.5]},
+            action_vec=[1.0, 0.0],
+            goal_vecs={"G": [1.0, 0.0]},
         )
         self.engine._scorer = scorer
-        agent = _FakeAgent({"A": 0.5, "B": 0.5})
-        fb = self.engine.feedback(agent, "anything")
-        assert fb["A"] == pytest.approx(0.0)
-        assert fb["B"] == pytest.approx(0.5)
+        agent = _FakeAgent({"G": 1.0})
+        fb = self.engine.feedback(agent, "x")
+        # sim=1.0 → 软映射 0.9
+        assert fb["G"] == pytest.approx(0.9)
 
     def test_weight_scales_feedback(self):
         # 同一行动,权重 0.9 vs 0.5:高权重者反馈更高

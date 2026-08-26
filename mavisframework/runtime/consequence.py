@@ -79,20 +79,19 @@ class ConsequenceEngine:
                 if g_vec is None:
                     continue
                 sim = scorer._cosine(a_vec, g_vec)
-                sims[goal] = max(0.0, min(1.0, sim))  # 截断到 [0,1]
+                # 软映射:embedding 余弦相似度对"行动 vs 目标短语"天然挤在
+                # 0.35-0.65 区间,线性映射到 [0.1, 0.9],保留连续性与中间态
+                # (不做 min-max 拉伸——那会制造 0/1 极化,倾向被钉死)
+                v = 0.1 + (max(0.0, min(1.0, sim)) - 0.35) / 0.3 * 0.8
+                v = max(0.1, min(0.9, v))
+                sims[goal] = v
             if not sims:
                 return {g: 0.5 * w for g, w in constraints.items() if w and w > 0}
-            # 对比拉伸:同一次行动的各目标相似度 min-max 归一化到 [0,1],
-            # 放大相对差异(原始余弦相似度挤在 0.35-0.65,差异被淹没)
-            lo, hi = min(sims.values()), max(sims.values())
-            spread = hi - lo
             out = {}
             for goal, weight in constraints.items():
                 if weight <= 0 or goal not in sims:
                     continue
-                s = sims[goal]
-                v = (s - lo) / spread if spread > 1e-6 else 0.5
-                out[goal] = v * weight
+                out[goal] = sims[goal] * weight
             return out
         except Exception:
             # 降级:中性反馈(0.5×权重),倾向维持当前水平

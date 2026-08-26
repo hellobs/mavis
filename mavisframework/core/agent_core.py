@@ -580,13 +580,25 @@ class Agent:
             self.status["goal_score"] = round(score, 4) if score is not None else None
             # 逐目标对齐度(供可视化展示每个变量值: action 与每个 goal 的相似度)
             self.status["goal_alignment"] = self.goal_alignment(action_desc)
-            if score is not None and score < self.think_config.get("goal_min_score", 0.35):
+            if score is not None and score < self.think_config.get("goal_min_score", 0.40):
                 self.logger.info(
                     "{} goal score {:.3f} < threshold, regenerating action...".format(
                         self.name, score
                     )
                 )
-                action_desc = self.completion("describe_event", action_desc)
+                # 重生成更贴合目标的行动描述(describe_event 返回 Event 对象,取描述字符串)
+                # 上限 2 次,防止低分持续时无限重生成拖慢模拟
+                for _ in range(self.think_config.get("goal_regenerate_max", 2)):
+                    _regenerated = self.completion(
+                        "describe_event", self.name, action_desc, address
+                    )
+                    if isinstance(_regenerated, str):
+                        action_desc = _regenerated
+                    elif _regenerated is not None:
+                        action_desc = str(_regenerated)
+                    _new_score = self.goal_score(action_desc)
+                    if _new_score is None or _new_score >= self.think_config.get("goal_min_score", 0.40):
+                        break
                 self.status["goal_score"] = round(
                     self.goal_score(action_desc) or 0.0, 4
                 )

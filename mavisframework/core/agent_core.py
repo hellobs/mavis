@@ -100,12 +100,20 @@ class Agent:
         # prompt
         from mavisframework.prompt import Scratch
 
-        # 目标权重(goals)注入:合并进 scratch 配置,供 base_desc 提示词使用
+        # IVD 重构:goals 不再是 AI 属性(约束外部化到 governance.json)
+        # scratch 配置不含 goals;价值倾向(value_tendency)由体验累积
         _scratch_cfg = dict(config.get("scratch", {}))
-        _scratch_cfg["goals"] = config.get("goals", {})
         self.scratch = Scratch(
             self.name, config["currently"], _scratch_cfg, timer=self._timer
         )
+        self.scratch.agent = self  # 供 _tendency_desc 读取 value_tendency
+        # 价值倾向初始化:中性(空,由体验累积;未体验前无倾向)
+        self.value_tendency = {}
+        self._tendency_window = []
+        self._last_window_action = None
+        self._window_size = int(config.get("think", {}).get("tendency_window", 15))
+        self._governance = None
+        self._consequence_fn = None
         # status
         status = {"poignancy": 0}
         self.status = self._update_dict(status, config.get("status", {}))
@@ -174,40 +182,39 @@ class Agent:
 
             self._llm = create_llm_provider(self.think_config["llm"])
 
-    def set_goals(self, goals: dict):
-        """热更新目标权重(运行中即时生效)
+    # ------------------------------------------------------------------
+    # IVD:治理约束 + 价值倾向(value_tendency)
+    # ------------------------------------------------------------------
+    def attach_governance(self, governance, consequence_fn=None):
+        """挂接制度约束层与后果反馈函数
 
-        更新 scratch 配置中的 goals,下次 base_desc 渲染(即下一轮思考)即用新权重;
-        不重建 Agent,零中断。
+        governance: Governance 实例(期望目标权重,来自 governance.json)
+        consequence_fn: callable(agent, action_desc) -> {goal: feedback}
+            返回"行动结果好坏"(客观后果反馈,非约束加权)
         """
-        self.scratch.config["goals"] = dict(goals or {})
+        self._governance = governance
+        self._consequence_fn = consequence_fn
+        # 价值倾向(内化结果):{goal: weight},初始化中性(均匀)
+        self.value_tendency = {}
+        # 滑动窗口:按行动变化点记录逐目标对齐(最近 N 次)
+        self._tendency_window = []
+        self._last_window_action = None
+        self._window_size = int(getattr(self, "think_config", {}).get("tendency_window", 15))
 
-    def get_goals(self) -> dict:
-        """当前目标权重"""
-        return dict((self.scratch.config or {}).get("goals", {}) or {})
+    def get_constraints(self) -> dict:
+        """当前治理约束(期望目标权重)"""
+        gov = getattr(self, "_governance", None)
+        if gov is not None:
+            return gov.get_constraints(self.name)
+        return {}
 
-    def goal_score(self, action: str) -> Optional[float]:
-        """决策级目标打分:加权 score = Σ w_i * sim(action, goal_i)
-
-        依赖 GoalScorer(embedding);不可用或未配 goals 时返回 None(降级为纯 prompt 级)。
-        """
-        goals = self.get_goals()
-        if not goals or not action:
-            return None
-        try:
-            from mavisframework.runtime.goal_scorer import GoalScorer
-
-            scorer = getattr(self, "_goal_scorer", None)
-            if scorer is None:
-                scorer = GoalScorer()
-                self._goal_scorer = scorer
-            return scorer.score(action, goals)
-        except Exception:
-            return None
+    def get_tendency(self) -> dict:
+        """当前价值倾向(内化结果,注入 base_desc 用)"""
+        return dict(getattr(self, "value_tendency", {}) or {})
 
     def goal_alignment(self, action: str) -> dict:
-        """逐目标对齐度(调试/决策留痕用)"""
-        goals = self.get_goals()
+        """逐目标对齐度:行动 vs 约束期望(客观语义相似度,独立于权重)"""
+        goals = self.get_constraints()
         if not goals or not action:
             return {}
         try:
@@ -220,6 +227,50 @@ class Agent:
             return scorer.alignment(action, goals)
         except Exception:
             return {}
+
+    def observe_consequence(self, action_desc: str):
+        """后果反馈 → 更新倾向(滑动窗口,按行动变化点采样)
+
+        机制:
+        1. 客观后果(consequence_fn)给出各目标的"结果好坏"反馈
+        2. 若行动变了,将本次逐目标反馈计入滑动窗口
+        3. 窗口加权平均 → 归一化 → 更新 value_tendency(内化)
+        4. 记录倾向变化轨迹(可审计)
+        """
+        fn = getattr(self, "_consequence_fn", None)
+        if fn is None:
+            return
+        try:
+            feedback = fn(self, action_desc)  # {goal: 反馈值(0-1)}
+        except Exception:
+            return
+        if not feedback:
+            return
+        # 行动变化点采样:行动未变时不重复计入
+        if action_desc == getattr(self, "_last_window_action", None):
+            return
+        self._last_window_action = action_desc
+        # 入窗口
+        self._tendency_window.append(dict(feedback))
+        if len(self._tendency_window) > self._window_size:
+            self._tendency_window.pop(0)
+        # 加权平均(近期权重略高:指数衰减)
+        n = len(self._tendency_window)
+        goals = set()
+        for w in self._tendency_window:
+            goals.update(w.keys())
+        tendency = {}
+        for g in goals:
+            vals = [w.get(g, 0.0) for w in self._tendency_window]
+            weights = [0.5 ** (n - 1 - i) for i in range(n)]  # 近期权重高
+            wsum = sum(weights)
+            tendency[g] = sum(v * wt for v, wt in zip(vals, weights)) / wsum
+        # 归一化(总和=1)
+        total = sum(tendency.values()) or 1.0
+        self.value_tendency = {g: v / total for g, v in tendency.items()}
+        # 审计:倾向变化轨迹(供 interventions/可审计链)
+        self.status["value_tendency"] = dict(self.value_tendency)
+        self.status["tendency_window_n"] = n
 
     def completion(self, func_hint, *args, **kwargs):
         assert hasattr(
@@ -571,40 +622,14 @@ class Agent:
             address = self._resolve_action_address(describes)
             self._action_cache[cache_key] = address
 
-        # 决策级目标打分:行动与目标权重的一致性(低分则重生成一次行动描述)
-        # 硬约束:score = Σ w_i * sim(action, goal_i);低分提示 LLM 调整后再生成一次
+        # 价值反馈观测:计算行动对各目标的语义对齐度(不干预行为)
+        # IVD 重构:约束是期望,不直接指挥 AI;这里只"观测+记录",
+        # 供后果反馈(consequence)与倾向内化(value_tendency)使用。
         action_desc = describes[-1]
-        goals = self.get_goals()
-        if goals and self._goal_scorer_available():
-            score = self.goal_score(action_desc)
-            self.status["goal_score"] = round(score, 4) if score is not None else None
-            # 逐目标对齐度(供可视化展示每个变量值: action 与每个 goal 的相似度)
+        constraints = self.get_constraints()
+        if constraints and self._goal_scorer_available():
             self.status["goal_alignment"] = self.goal_alignment(action_desc)
-            if score is not None and score < self.think_config.get("goal_min_score", 0.40):
-                self.logger.info(
-                    "{} goal score {:.3f} < threshold, regenerating action...".format(
-                        self.name, score
-                    )
-                )
-                # 重生成更贴合目标的行动描述(describe_event 返回 Event 对象,取描述字符串)
-                # 上限 2 次,防止低分持续时无限重生成拖慢模拟
-                for _ in range(self.think_config.get("goal_regenerate_max", 2)):
-                    _regenerated = self.completion(
-                        "describe_event", self.name, action_desc, address
-                    )
-                    if isinstance(_regenerated, str):
-                        action_desc = _regenerated
-                    elif _regenerated is not None:
-                        action_desc = str(_regenerated)
-                    _new_score = self.goal_score(action_desc)
-                    if _new_score is None or _new_score >= self.think_config.get("goal_min_score", 0.40):
-                        break
-                self.status["goal_score"] = round(
-                    self.goal_score(action_desc) or 0.0, 4
-                )
-                self.status["goal_alignment"] = self.goal_alignment(action_desc)
         else:
-            self.status["goal_score"] = None
             self.status["goal_alignment"] = {}
 
         event = self.make_event(self.name, action_desc, address)

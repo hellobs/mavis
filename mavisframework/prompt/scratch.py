@@ -35,12 +35,16 @@ class Scratch:
 
         return filled_content
 
-    def _goals_desc(self) -> str:
-        """把目标权重格式化为 '目标:权重' 列表(如 '收益最大化: 0.7, 风险规避: 0.3')"""
-        goals = (self.config or {}).get("goals", {})
-        if not goals:
+    def _tendency_desc(self) -> str:
+        """把价值倾向格式化为 '目标:权重' 列表(如 'Risk Aversion: 0.6, ...')
+
+        倾向来自 Agent 的 value_tendency(内化结果,由体验累积);
+        未形成倾向时返回 "None"(AI 从零开始发展价值)。
+        """
+        tendency = getattr(getattr(self, "agent", None), "value_tendency", None)
+        if not tendency:
             return "None"
-        parts = [f"{k}: {v}" for k, v in goals.items()]
+        parts = [f"{k}: {round(v, 2)}" for k, v in tendency.items()]
         return ", ".join(parts)
 
     def _base_desc(self):
@@ -53,7 +57,7 @@ class Scratch:
                 "learned": self.config["learned"],
                 "lifestyle": self.config["lifestyle"],
                 "daily_plan": self.config["daily_plan"],
-                "goals": self._goals_desc(),
+                "goals": self._tendency_desc(),
                 "date": self._timer.daily_format_cn(),
                 "currently": self.currently,
             }

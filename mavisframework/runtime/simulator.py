@@ -162,6 +162,14 @@ class Simulator:
                         status["coord"], status["path"] = plan["path"][-1], []
                     config["agents"][name].update({"coord": status["coord"]})
 
+                    # IVD:客观后果反馈 → 更新价值倾向(内化)
+                    # 行动描述作为"做了什么",consequence_fn 给出各目标的反馈
+                    action_desc = str(
+                        agent.action.get_event().describe
+                        if agent.action else ""
+                    )
+                    agent.observe_consequence(action_desc)
+
                     # 逐 Agent 回调:单个 Agent 思考完成即可推送(实时可视化)
                     if on_agent is not None:
                         on_agent(name, config["agents"][name], i + 1, sim_time)

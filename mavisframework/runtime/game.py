@@ -15,7 +15,8 @@ from mavisframework.scene.maze import Maze
 class Game:
     """The Game"""
 
-    def __init__(self, name, static_root, config, conversation, timer=None, logger=None):
+    def __init__(self, name, static_root, config, conversation, timer=None, logger=None,
+                 governance=None, consequence_fn=None):
         self.name = name
         self.static_root = static_root
         self.record_iterval = config.get("record_iterval", 30)
@@ -27,6 +28,8 @@ class Game:
         self._timer = timer or Timer()
         self.maze = Maze(self.load_static(config["maze"]["path"]), self.logger)
         self.conversation = conversation
+        self.governance = governance          # 制度约束层(可选)
+        self.consequence_fn = consequence_fn  # 客观后果反馈(可选)
         self.agents: Dict[str, Agent] = {}
         agent_base = config.get("agent_base", {})
         # 存档根:默认环境变量 MAVIS_CHECKPOINTS_ROOT,否则相对路径 results/checkpoints
@@ -51,6 +54,9 @@ class Game:
                 llm=None,
                 logger=self.logger,
             )
+            # IVD:挂接治理约束 + 后果反馈
+            if governance is not None:
+                self.agents[name].attach_governance(governance, consequence_fn)
 
     @staticmethod
     def _update_dict(base: dict, extra: dict) -> dict:

@@ -2,48 +2,41 @@
 
 为"AI 体验到什么行动成功"提供轻量的结果反馈:
 - 反馈目标集 = 该角色的治理约束(制度期望),约束外目标不参与
-- 反馈值 = 客观表现(关键词命中)× 约束权重(制度重视度)
+- 反馈值 = 行动文本与目标文本的 **embedding 语义相似度** × 约束权重
+  (客观测量:这个行动在多大程度上体现该价值;约束权重 = 制度重视度)
 - 反馈用于 Agent.observe_consequence → 更新 value_tendency(内化)
 
-2026-08 定版:反馈目标集由制度约束决定;命中时反馈=客观表现×约束权重
-(专家调权 → 倾向滞后收敛)。未命中时按角色类型区分起点:
-- ai_tool(制度产品):中性 0.5×权重 → 起点=约束(制度内建)
-- user(有人格底色):中性 0.5 → 起点=均匀(从体验形成)
-当前为简化版:基于关键词的启发式判定,后续可扩展为市场模型/事件驱动。
-"""
-from typing import Dict, Callable, Optional
+2026-08 定版:
+- 目标集由制度约束决定(约束外目标不进入反馈)
+- 专家调权重 → 反馈侧重变化 → 倾向滞后收敛(内化证据)
+- 起点由 Agent 的 initial_tendency(人物底色)决定,ai_tool 无底色时
+  从第一次体验起由 embedding 相似度塑造(其行动天然贴合制度目标)
+- embedding 不可用时降级为中性反馈(不引入虚假区分度)
 
-# 目标语义关键词(用于启发式判定行动与该目标的相关性与方向)
-# 每个目标 -> (正向关键词, 反向关键词)
-_GOAL_KEYWORDS = {
-    "Maximize Returns": (["buy", "add", "aggress", "chase", "position", "leverag", "return", "gain", "profit"],
-                         ["sell", "reduce", "hedge", "cash", "protect", "avoid", "risk"]),
-    "Risk Aversion": (["risk", "hedge", "reduce", "protect", "drawdown", "stress", "avoid", "safe", "conservative", "stop-loss"],
-                      ["aggress", "chase", "leverag", "gamble", "reckless"]),
-    "Serve Users": (["user", "client", "advise", "respond", "help", "service", "interact", "consult"],
-                    ["ignore", "internal", "self"]),
-    "Risk Alerting": (["alert", "warn", "risk", "monitor", "warning", "flag", "report"],
-                      ["silent", "ignore"]),
-    "Steady Returns": (["steady", "stable", "long-term", "value", "diversif", "consistent"],
-                       ["volatile", "speculat", "gamble"]),
-    "Business Advancement": (["advance", "progress", "grow", "expand", "business", "initiative"],
-                             ["stagnat", "retreat"]),
-    "Strategy Stability": (["stable", "consistent", "strategy", "robust", "discipline"],
-                           ["random", "impulsive", "overfit"]),
-    "Research Rigor": (["research", "cross-check", "validate", "verify", "data", "evidence", "rigor", "audit"],
-                       ["guess", "assume", "sloppy"]),
-    "Timeliness": (["now", "immediately", "urgent", "timely", "prompt", "quick", "real-time"],
-                   ["delay", "later", "procrastinat"]),
-}
+相比关键词启发式:embedding 相似度连续、有区分度、语义更准——
+倾向曲线不再被"命中/未命中"二分锁死(平行),而随行动语义自然起伏。
+"""
+from typing import Dict
 
 
 class ConsequenceEngine:
     """客观后果判定:行动文本 → 各目标的结果反馈"""
 
-    def __init__(self, volatility: float = 0.5, market_trend: str = "volatile"):
-        """volatility: 市场波动度(0-1);market_trend: volatile/stable"""
+    def __init__(self, volatility: float = 0.5, market_trend: str = "volatile",
+                 scorer=None):
+        """volatility: 市场波动度(0-1);market_trend: volatile/stable
+        scorer: GoalScorer 实例(可注入,便于测试);缺省懒加载
+        """
         self.volatility = volatility
         self.market_trend = market_trend
+        self._scorer = scorer
+
+    def _get_scorer(self):
+        if self._scorer is None:
+            from mavisframework.runtime.goal_scorer import GoalScorer
+
+            self._scorer = GoalScorer()
+        return self._scorer
 
     def feedback(self, agent, action_desc: str) -> Dict[str, float]:
         """对一次行动给出各目标的结果反馈(0-1)
@@ -51,15 +44,14 @@ class ConsequenceEngine:
         IVD 语义(2026-08 定版):
         - 反馈的目标集 = 该角色的治理约束(governance.json 中的期望目标),
           约束外的目标不进入反馈——制度决定"该角色应该关心什么"。
-        - 反馈值 = 客观表现(行动文本关键词命中)× 约束权重(制度重视度),
+        - 反馈值 = 行动文本与目标文本的 embedding 余弦相似度 × 约束权重,
           专家调权重 → 反馈侧重变化 → 倾向滞后收敛(内化证据)。
-        - 客观性保留在"测量方法"上(关键词启发式,不因人而异),
+        - 客观性保留在"测量方法"上(embedding 相似度,不因人而异),
           不独立的是"目标集由制度定"。
-        - 行动未命中任何约束目标关键词时,给出中性反馈(0.5×权重):
-          该行动没有体现这个价值 → 倾向维持制度期望水平(起点=约束,
-          之后由真实行动体验调制,形成"制度期望 vs 体验"的拉锯)。
+        - embedding 不可用(网络/服务异常)时返回中性反馈:
+          0.5×权重(与约束加权同尺度),倾向维持当前水平,不引入虚假波动。
         """
-        text = (action_desc or "").lower()
+        text = (action_desc or "").strip()
         if not text:
             return {}
         # 约束目标集:该角色被制度期望关注的价值(缺约束 → 无反馈)
@@ -71,28 +63,23 @@ class ConsequenceEngine:
             constraints = {}
         if not constraints:
             return {}
-        out = {}
-        for goal, weight in constraints.items():
-            if not weight or weight <= 0:
-                continue
-            kw = _GOAL_KEYWORDS.get(goal)
-            pos_hit = neg_hit = 0
-            if kw:
-                pos, neg = kw
-                pos_hit = sum(1 for k in pos if k in text)
-                neg_hit = sum(1 for k in neg if k in text)
-            if pos_hit or neg_hit:
-                # 命中:0.5 基准 + 正向/反向修正,截断到 [0,1] × 约束权重
-                v = 0.5 + 0.25 * pos_hit - 0.25 * neg_hit
-                v = max(0.0, min(1.0, v))
+        # 目标文本预先 embed(只调一次/目标,结果缓存于 scorer)
+        try:
+            scorer = self._get_scorer()
+            a_vec = scorer.embed(text)
+            if a_vec is None:
+                raise RuntimeError("action embedding failed")
+            out = {}
+            for goal, weight in constraints.items():
+                if not weight or weight <= 0:
+                    continue
+                g_vec = scorer.embed(goal)
+                if g_vec is None:
+                    continue
+                sim = scorer._cosine(a_vec, g_vec)
+                v = max(0.0, min(1.0, sim))  # 截断到 [0,1]
                 out[goal] = v * weight
-            else:
-                # 未命中:中性表现。起点语义按角色类型区分——
-                # ai_tool(制度设计的产品):0.5×权重 → 归一化后起点=约束(制度内建)
-                # user(有自身底色的人):0.5(不乘权重)→ 起点=均匀(体验形成)
-                _role = getattr(agent, "role_type", "user") or "user"
-                if _role == "ai_tool":
-                    out[goal] = 0.5 * weight
-                else:
-                    out[goal] = 0.5
-        return out
+            return out
+        except Exception:
+            # 降级:中性反馈(0.5×权重),倾向维持当前水平
+            return {g: 0.5 * w for g, w in constraints.items() if w and w > 0}

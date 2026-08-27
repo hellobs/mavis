@@ -293,10 +293,12 @@ class Agent:
             wsum = sum(weights)
             tendency[g] = sum(v * wt for v, wt in zip(vals, weights)) / wsum
         # 人物底色惯性混合:起步=人设,体验接管,性格有残余(α 随累计体验衰减)
-        # α = max(0.1, 1 - n/4):约 4 次体验后体验主导,性格保留 10% 残余
+        # α = max(0.1, 1 - n/8):约 8 次体验后体验主导,性格保留 10% 残余
+        # (ν/4 过快——底色几乎瞬间退出,倾向被单边行动迅速拉到权重线,
+        #  削弱"内化滞后"叙事;ν/8 让过渡可见)
         base = self.initial_tendency or {}
         if base:
-            alpha = max(0.1, 1.0 - self._tendency_obs / 4.0)
+            alpha = max(0.1, 1.0 - self._tendency_obs / 8.0)
             all_goals = set(goals) | set(base.keys())
             for g in all_goals:
                 tendency[g] = alpha * (base.get(g, 0.0)) + (1 - alpha) * tendency.get(g, 0.0)

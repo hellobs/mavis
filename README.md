@@ -1,4 +1,4 @@
-# mavisframework
+﻿# mavisframework
 
 English | [简体中文](./README_zh.md)
 
@@ -167,8 +167,12 @@ Key semantics:
   `initial_tendency` persona baseline (or uniform if unset), then experience
   modulates it.
 - **Inertia blend**: `tendency = α·persona + (1−α)·experience`,
-  `α = max(0.1, 1 − experiences/20)` — starts at the persona, experience takes
-  over, but character leaves a 10% residue (personality is sticky).
+  `α = max(0.1, 1 − experiences/4)` — starts at the persona, experience takes
+  over within ~4 experiences, but character leaves a 10% residue (personality
+  is sticky).
+- **Sampling**: feedback is recorded at *action-change points* plus a periodic
+  refresh (`tendency_refresh`, default 5 steps) so a persistent action still
+  reinforces the tendency instead of freezing the curve.
 - **Constraints are expectations, not controls**: they never enter the prompt
   and never force action regeneration. They only weight the consequence
   feedback, so an expert adjustment is *felt* by the agent only through later
@@ -177,10 +181,15 @@ Key semantics:
   and `interventions.json` (expert edits, with the simulation time of each
   intervention) are all exported for audit.
 
-Consequence feedback is a keyword-heuristic stand-in for a market model
-(see `runtime/consequence.py`); the interface is a plain callable
+Consequence feedback measures the **semantic similarity** between the action
+text and each constrained goal via embeddings, then takes a relative share
+(softmax-like) weighted by the constraint — a light stand-in for a market
+model (see `runtime/consequence.py`). The interface is a plain callable
 `(agent, action_desc) -> {goal: feedback}`, so it can be swapped for a real
-simulated market later.
+simulated market later. Steady-state intuition: tendency converges to
+(weight × behavior–value coupling) normalized — institutional emphasis scales
+a value's share, but behavior that never touches a value cannot be pulled by
+weight alone (the boundary of governance).
 
 ## 8. Usage
 
@@ -226,7 +235,7 @@ variables:
 - `MAVIS_ASSETS_ROOT` — platform frontend assets root (`frontend/static/assets/village`)
 - `MAVIS_SCENARIOS_DIR` — platform scenario directory (`scenarios`)
 
-## 10. Status
+## 11. Status
 
 - Done: protocol / core / scene(maze) / runtime(llm, simulator) / output(decisions) / config(loader, validator)
 - The framework runs standalone: full agent lifecycle, memory stores
@@ -236,7 +245,7 @@ variables:
   by the framework's Game + Simulator; decision export is wired into the pipeline
 - Next: business-layer config effects (relation/story injection), Unity frontend
 
-## 11. Versioning
+## 12. Versioning
 
 **API stability promise**: once published, the top-level API (Section 2) stays
 backward-compatible. New capabilities must not break existing signatures; any

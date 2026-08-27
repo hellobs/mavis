@@ -1,4 +1,4 @@
-# mavisframework
+﻿# mavisframework
 
 [English](./README.md) | 简体中文
 
@@ -136,13 +136,35 @@ frontend/unity      前端壳(规划中,WebSocket 消费同一协议)
 | `SnapshotMsg` | 全量快照 | 新连接追赶 |
 | `DecisionEvent` | 决策事件 | 决策平台/专家界面 |
 
-## 7. 使用方式
+## 7. IVD:价值形成与治理(实验性)
+
+框架支持治理层:agent 的*价值倾向*(从体验中内化的结果)可被观察,并由外部*制度约束*影响——不直接操控行为。
+
+塑造 `value_tendency`(归一化的 `{目标: 权重}` 映射)的三个来源:
+
+| 来源 | 位置 | 作用 |
+|---|---|---|
+| `initial_tendency` | `agent.json`(AI 本体) | 人物初始底色——"这个 AI 是谁"(如:冲动型散户) |
+| 约束 | `governance.json`(制度层) | 制度期望(专家可调) |
+| 体验 | `ConsequenceEngine` 反馈 → 滑动窗口 | AI 从行动结果中学到什么 |
+
+关键语义:
+
+- **ai_tool 角色**(如 AI 投顾产品)起点 = 约束:制度"制造"了它。**user 角色**起点 = `initial_tendency` 人物底色(未配置则为均匀),再由体验调制。
+- **惯性混合**:`倾向 = α×底色 + (1−α)×体验`,`α = max(0.1, 1 − 体验次数/4)`——起步为底色,约 4 次体验后体验主导,但性格保留 10% 残余(性格有粘性)。
+- **采样**:反馈在*行动变化点*以及*周期性刷新*(`tendency_refresh`,默认 5 步)时计入,持续行动仍会强化倾向,曲线不冻结。
+- **约束是期望,不是控制**:约束不进提示词、不强制重生成行为。它只加权后果反馈,因此专家调整约束的效果,只能通过后续体验被 agent 感知(滞后收敛 = 内化证据)。
+- **可审计**:`goal_alignment`(即时)、`value_tendency`(累积)、`interventions.json`(专家编辑,含每次干预的模拟时间)均导出供审计。
+
+后果反馈用 embedding 度量行动文本与各约束目标的语义相似度,取相对占比(softmax 式)后按约束加权——作为市场模型的轻量替代(见 `runtime/consequence.py`)。接口是普通可调用对象 `(agent, action_desc) -> {goal: feedback}`,后续可替换为真实模拟市场。稳态直觉:倾向收敛于(权重 × 行为-价值耦合度)归一化——制度权重放大某价值的份额,但行为从未触及的价值,单靠权重拉不动(治理的边界)。
+
+## 8. 使用方式
 
 框架 `Game` + `Simulator` + `LiveCompressor` 驱动完整模拟(并行思考/存档/决策导出/WebSocket 推送)。项目已移除旧实现(`modules/`,以及 `start.py`/`live.py`/`compress.py`/`replay.py`),全部逻辑在框架内,可在 git 历史中回退查看。
 
 完整演示平台见 [Provenance](https://github.com/hellobs/provenance):其实时服务 `live_fastapi.py` 即框架路线的参考实现(FastAPI + WebSocket 消费框架契约消息)。
 
-## 8. Unity 迁移
+## 9. Unity 迁移
 
 ```
 框架核心(agent/记忆/寻路/决策导出)  ← 零改动
@@ -153,7 +175,7 @@ frontend/unity      前端壳(规划中,WebSocket 消费同一协议)
 
 框架层不感知前端的具体实现,这是"Phaser 不嵌入框架"的结构保证。
 
-## 9. 仓库结构
+## 10. 仓库结构
 
 ```
 mavisframework/          # 框架包(pip 包,pyproject 位于仓库根)
@@ -168,14 +190,14 @@ config_tool 属于框架仓库,但其产物(角色/关系/剧情)写入平台的
 - `MAVIS_ASSETS_ROOT` — 平台前端资源根(`frontend/static/assets/village`)
 - `MAVIS_SCENARIOS_DIR` — 平台场景目录(`scenarios`)
 
-## 10. 状态
+## 11. 状态
 
 - 已完成:protocol / core / scene(maze) / runtime(llm, simulator) / output(decisions) / config(loader, validator)
 - 框架可独立运行:Agent 完整生命周期、记忆存储(SimpleStore / LlamaIndexStore 可选)、提示词系统均不依赖外部模块
 - 平台消费:Provenance 平台的实时服务由框架 Game + Simulator 驱动,决策导出接入管线
 - 后续:业务层配置生效(关系注入/剧情注入)、Unity 前端
 
-## 11. 版本管理
+## 12. 版本管理
 
 **API 稳定承诺**:顶层 API(见第 2 节)一旦发布即保持兼容。新增能力不破坏既有签名;确需破坏性改动时,必须升主版本号并在此文档注明迁移方式。
 

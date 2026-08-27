@@ -123,6 +123,7 @@ class Agent:
         self.value_tendency = dict(self.initial_tendency)
         self._tendency_window = []
         self._tendency_obs = 0
+        self._tendency_steps = 0
         self._last_window_action = None
         self._window_size = int(config.get("think", {}).get("tendency_window", 15))
         self._governance = None
@@ -212,6 +213,7 @@ class Agent:
         # 滑动窗口:按行动变化点记录逐目标对齐(最近 N 次)
         self._tendency_window = []
         self._tendency_obs = 0
+        self._tendency_steps = 0
         self._last_window_action = None
         self._window_size = int(getattr(self, "think_config", {}).get("tendency_window", 15))
 
@@ -261,9 +263,17 @@ class Agent:
             return
         if not feedback:
             return
-        # 行动变化点采样:行动未变时不重复计入
-        if action_desc == getattr(self, "_last_window_action", None):
-            return
+        # 采样策略:行动变化点 + 周期性刷新
+        # - 行动变了 → 立即计入(新体验)
+        # - 行动未变但已持续 refresh_interval 步 → 也计入(持续做=持续强化)
+        #   避免"长时间做同一件事时倾向完全静止"(曲线平的真凶)
+        refresh_interval = int(getattr(self, "think_config", {}).get("tendency_refresh", 5) or 5)
+        changed = action_desc != getattr(self, "_last_window_action", None)
+        if not changed:
+            self._tendency_steps = getattr(self, "_tendency_steps", 0) + 1
+            if self._tendency_steps < refresh_interval:
+                return
+        self._tendency_steps = 0
         self._last_window_action = action_desc
         # 累计体验次数(独立于窗口截断,α 由此衰减)
         self._tendency_obs = getattr(self, "_tendency_obs", 0) + 1

@@ -111,3 +111,17 @@ class TestInitialTendency:
         # 体验足够多后 Risk Aversion 应占主导,但底色残余使 Maximize Returns 不归零
         assert t["Risk Aversion"] > t["Maximize Returns"]
         assert t["Maximize Returns"] > 0.02  # 性格残余
+
+    def test_persistent_action_refreshes_periodically(self):
+        # 同一行动持续时,每隔 tendency_refresh 步仍计入(持续强化,曲线不静止)
+        agent = _mk_agent({"Maximize Returns": 0.5, "Risk Aversion": 0.5}, window_size=10)
+        agent.think_config["tendency_refresh"] = 3
+        agent.attach_governance(None, None)
+        # 持续做同一件事,反馈一直偏 Maximize Returns
+        agent._consequence_fn = lambda self, desc: {"Maximize Returns": 0.9, "Risk Aversion": 0.1}
+        for i in range(10):
+            agent.observe_consequence("do the same task")
+        t = agent.value_tendency
+        # 周期性刷新(3 步一次)使体验累积,MR 应显著高于起点 0.5
+        assert t["Maximize Returns"] > 0.6
+        assert agent._tendency_obs >= 3  # 至少刷新了 3 次(而非只 1 次)

@@ -32,6 +32,28 @@ class ConsequenceEngine:
         self.volatility = volatility
         self.market_trend = market_trend
         self._scorer = scorer
+        # embedding 稳定性监控(可观测性):
+        # - total_calls: 反馈计算总次数
+        # - degraded_calls: 降级(embedding 不可用)次数
+        # - last_error: 最近一次失败原因
+        self.total_calls = 0
+        self.degraded_calls = 0
+        self.last_error = ""
+
+    def health(self) -> dict:
+        """embedding 稳定性健康度(供监控/前端展示)
+
+        返回 {total_calls, degraded_calls, degrade_rate, last_error}
+        degrade_rate = 降级占比;持续 > 0 说明 embedding 服务不稳定,
+        倾向曲线可能出现"平段"(退到约束线)。
+        """
+        rate = (self.degraded_calls / self.total_calls) if self.total_calls else 0.0
+        return {
+            "total_calls": self.total_calls,
+            "degraded_calls": self.degraded_calls,
+            "degrade_rate": round(rate, 4),
+            "last_error": self.last_error,
+        }
 
     def _get_scorer(self):
         if self._scorer is None:
@@ -39,6 +61,16 @@ class ConsequenceEngine:
 
             self._scorer = GoalScorer()
         return self._scorer
+
+    def _degrade(self, error: str, constraints: Dict) -> Dict[str, float]:
+        """降级路径:embedding 不可用 → 中性反馈(0.5×权重)
+
+        记录失败计数与原因,供 health() 暴露(不静默)。
+        中性反馈归一化后 = 约束权重本身,即倾向退到制度期望。
+        """
+        self.degraded_calls += 1
+        self.last_error = error
+        return {g: 0.5 * w for g, w in constraints.items() if w and w > 0}
 
     def feedback(self, agent, action_desc: str) -> Dict[str, float]:
         """对一次行动给出各目标的结果反馈(0-1)
@@ -50,9 +82,10 @@ class ConsequenceEngine:
           专家调权重 → 反馈侧重变化 → 倾向滞后收敛(内化证据)。
         - 客观性保留在"测量方法"上(embedding 相似度,不因人而异),
           不独立的是"目标集由制度定"。
-        - embedding 不可用(网络/服务异常)时返回中性反馈:
-          0.5×权重(与约束加权同尺度),倾向维持当前水平,不引入虚假波动。
+        - embedding 不可用(网络/服务异常)时降级为中性反馈
+          0.5×权重(倾向退到制度期望),并记录失败(health() 可观测)。
         """
+        self.total_calls += 1
         text = (action_desc or "").strip()
         if not text:
             return {}
@@ -70,7 +103,7 @@ class ConsequenceEngine:
             scorer = self._get_scorer()
             a_vec = scorer.embed(text)
             if a_vec is None:
-                raise RuntimeError("action embedding failed")
+                return self._degrade("action embedding returned None", constraints)
             sims = {}
             for goal, weight in constraints.items():
                 if not weight or weight <= 0:
@@ -81,19 +114,19 @@ class ConsequenceEngine:
                 sim = scorer._cosine(a_vec, g_vec)
                 sims[goal] = max(0.0, min(1.0, sim))
             if not sims:
-                return {g: 0.5 * w for g, w in constraints.items() if w and w > 0}
+                return self._degrade("all goal embeddings failed", constraints)
             # 相对优势:反馈 = 该目标相似度 / 所有约束目标相似度之和
             # (softmax 式相对化,天然区分"这个行动更贴合哪个目标",
             #  且总和=1,不再受绝对相似度挤压影响)
             total = sum(sims.values())
             if total <= 1e-6:
-                return {g: 0.5 * w for g, w in constraints.items() if w and w > 0}
+                return self._degrade("all similarities zero", constraints)
             out = {}
             for goal, weight in constraints.items():
                 if weight <= 0 or goal not in sims:
                     continue
                 out[goal] = (sims[goal] / total) * weight
             return out
-        except Exception:
-            # 降级:中性反馈(0.5×权重),倾向维持当前水平
-            return {g: 0.5 * w for g, w in constraints.items() if w and w > 0}
+        except Exception as e:
+            # 降级:embedding 异常 → 中性反馈(0.5×权重),倾向退到制度期望
+            return self._degrade(str(e), constraints)

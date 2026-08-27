@@ -122,3 +122,26 @@ class TestConsequenceEngine:
         agent = _FakeAgent({"Serve Users": 0.6, "Risk Alerting": 0.4})
         fb = self.engine.feedback(agent, "anything")
         assert fb == {"Serve Users": 0.3, "Risk Alerting": 0.2}
+
+    def test_health_tracks_degradation(self):
+        # 健康度:成功调用不降级;embedding 失败计入 degraded_calls 与 last_error
+        scorer = _FakeScorer(action_vec=[1.0, 0.0], goal_vecs={"G": [1.0, 0.0]})
+        self.engine._scorer = scorer
+        agent = _FakeAgent({"G": 1.0})
+        self.engine.feedback(agent, "ok")  # 成功
+        h = self.engine.health()
+        assert h["total_calls"] == 1
+        assert h["degraded_calls"] == 0
+        assert h["degrade_rate"] == 0.0
+
+        class _Broken:
+            def embed(self, text):
+                raise RuntimeError("ollama down")
+
+        self.engine._scorer = _Broken()
+        self.engine.feedback(agent, "fail")  # 失败 → 降级
+        h2 = self.engine.health()
+        assert h2["total_calls"] == 2
+        assert h2["degraded_calls"] == 1
+        assert h2["degrade_rate"] == pytest.approx(0.5)
+        assert "ollama down" in h2["last_error"]

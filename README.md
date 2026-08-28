@@ -180,6 +180,10 @@ Key semantics:
 - **Auditable**: `goal_alignment` (instant), `value_tendency` (accumulated),
   and `interventions.json` (expert edits, with the simulation time of each
   intervention) are all exported for audit.
+- **Resume continuity**: `--resume` restores `value_tendency` and the
+  experience count from the checkpoint (instead of resetting to the persona
+  baseline), so the tendency curve stays continuous across restarts and the
+  inertia alpha does not rewind.
 
 Consequence feedback measures the **semantic similarity** between the action
 text and each constrained goal via embeddings, then takes a relative share

@@ -12,8 +12,11 @@
 ## 启动
 
 ```bash
-# 依赖 MAVIS 的 uv 环境(fastapi 等);激活后直接 python
-# 或指定解释器:Windows .venv-live\Scripts\python.exe / mac·linux .venv-live/bin/python
+# 依赖:fastapi + uvicorn(任意安装了二者的解释器即可)
+# mavisframework 源码在同仓库内,app.py 通过 sys.path 直接引用,无需安装
+# 例(Windows,用平台环境的解释器):
+#   cd config_tool
+#   D:\zzr\provenance\provenance\.venv-live\Scripts\python.exe app.py
 cd config_tool
 python app.py
 ```

@@ -116,13 +116,21 @@ class Agent:
         )
         self.scratch.agent = self  # 供 _tendency_desc 读取 value_tendency
         # 价值倾向初始化:
-        # - initial_tendency(agent.json 人物底色,可选):起步=人设(性格惯性),
-        #   随体验累积 α 渐降(性格有残余,不彻底被体验覆盖)
-        # - 未配置:中性(空,由体验累积;未体验前无倾向)
+        # - 续跑(resume):优先恢复存档的 value_tendency(内化结果)
+        # - 新开:initial_tendency(agent.json 人物底色)起步,随体验累积 α 渐降
         self.initial_tendency = dict(config.get("initial_tendency", {}) or {})
-        self.value_tendency = dict(self.initial_tendency)
+        _saved_status = config.get("status") or {}
+        _saved_vt = _saved_status.get("value_tendency") or {}
+        if _saved_vt:
+            self.value_tendency = dict(_saved_vt)
+        else:
+            self.value_tendency = dict(self.initial_tendency)
         self._tendency_window = []
-        self._tendency_obs = 0
+        # 续跑:体验计数近似恢复(α 惯性不从头算,避免 resume 后倾向剧烈波动)
+        try:
+            self._tendency_obs = int(_saved_status.get("tendency_window_n", 0) or 0)
+        except (TypeError, ValueError):
+            self._tendency_obs = 0
         self._tendency_steps = 0
         self._last_window_action = None
         self._window_size = int(config.get("think", {}).get("tendency_window", 15))
@@ -130,7 +138,7 @@ class Agent:
         self._consequence_fn = None
         # status
         status = {"poignancy": 0}
-        self.status = self._update_dict(status, config.get("status", {}))
+        self.status = self._update_dict(status, _saved_status)
         self.plan = config.get("plan", {})
 
         # record
@@ -208,8 +216,10 @@ class Agent:
         """
         self._governance = governance
         self._consequence_fn = consequence_fn
-        # 价值倾向(内化结果):起步=人物初始底色(若有),否则中性空
-        self.value_tendency = dict(self.initial_tendency or {})
+        # 价值倾向(内化结果):已有值(如 resume 从存档恢复)则保留,
+        # 否则起步=人物初始底色(若有),否则中性空
+        if not getattr(self, "value_tendency", None):
+            self.value_tendency = dict(self.initial_tendency or {})
         # 滑动窗口:按行动变化点记录逐目标对齐(最近 N 次)
         self._tendency_window = []
         self._tendency_obs = 0
@@ -459,13 +469,23 @@ class Agent:
                 service_start = int(
                     getattr(self, "think_config", {}).get("ai_service_start", 9) or 9
                 )
+                _covered = 0
                 for hkey in list(schedule.keys()):
                     try:
                         hh = int(str(hkey).split(":")[0])
                     except (ValueError, IndexError):
+                        self.logger.warning(
+                            "schedule key '{}' 无法解析小时,跳过覆盖".format(hkey)
+                        )
                         continue
                     if hh < service_start:
                         schedule[hkey] = "空闲待命,保持在线,无用户咨询"
+                        _covered += 1
+                self.logger.info(
+                    "ai_tool 凌晨覆盖: 覆盖 {} 段, 时段键样例 {} (service_start={})".format(
+                        _covered, list(schedule.keys())[:6], service_start
+                    )
+                )
 
             def _to_duration(date_str):
                 return daily_duration(to_date(date_str, "%H:%M"))
@@ -474,7 +494,8 @@ class Agent:
             starts = list(sorted(schedule.keys()))
             for idx, start in enumerate(starts):
                 end = starts[idx + 1] if idx + 1 < len(starts) else 24 * 60
-                self.schedule.add_plan(schedule[start], end - start)
+                # start 显式传入(LLM 键的真实起点),add_plan 不再从 0 累加
+                self.schedule.add_plan(schedule[start], end - start, start=start)
             schedule_time = self._timer.time_format_cn(self.schedule.create)
             thought = "这是 {} 在 {} 的计划：{}".format(
                 self.name, schedule_time, "；".join(init_schedule)

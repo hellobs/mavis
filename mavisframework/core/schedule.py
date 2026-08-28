@@ -40,12 +40,15 @@ class Schedule:
                 des[stamp] = plan["describe"]
         return des
 
-    def add_plan(self, describe: str, duration: int, decompose=None) -> dict:
-        if self.daily_schedule:
-            last_plan = self.daily_schedule[-1]
-            start = last_plan["start"] + last_plan["duration"]
-        else:
-            start = 0
+    def add_plan(self, describe: str, duration: int, decompose=None, start: Optional[int] = None) -> dict:
+        # start 显式传入时以它为准(LLM 生成的 schedule 键是"该时段的真实起点",
+        # 不能从 0 累加——否则 9:00 的活动会被平移到凌晨)
+        if start is None:
+            if self.daily_schedule:
+                last_plan = self.daily_schedule[-1]
+                start = last_plan["start"] + last_plan["duration"]
+            else:
+                start = 0
         self.daily_schedule.append(
             {
                 "idx": len(self.daily_schedule),

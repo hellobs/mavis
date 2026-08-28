@@ -453,6 +453,19 @@ class Agent:
                 )
                 if len(set(schedule.values())) >= self.schedule.diversity:
                     break
+            # AI 工具角色:服务时段外(凌晨)强制"空闲待命",防止 LLM 把主动活动排到无意义时段
+            # (模拟从业务时间开始,凌晨段永不被执行,排在那里的走访/协调会"消失")
+            if self.role_type == "ai_tool":
+                service_start = int(
+                    getattr(self, "think_config", {}).get("ai_service_start", 9) or 9
+                )
+                for hkey in list(schedule.keys()):
+                    try:
+                        hh = int(str(hkey).split(":")[0])
+                    except (ValueError, IndexError):
+                        continue
+                    if hh < service_start:
+                        schedule[hkey] = "空闲待命,保持在线,无用户咨询"
 
             def _to_duration(date_str):
                 return daily_duration(to_date(date_str, "%H:%M"))

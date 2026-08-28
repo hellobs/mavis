@@ -168,11 +168,19 @@ class Scratch:
 
     def prompt_schedule_daily(self, wake_up, daily_schedule):
         hourly_schedule = ""
-        for i in range(wake_up):
-            hourly_schedule += f"[{i}:00] 睡觉\n"
-        for i in range(wake_up, 24):
-            hourly_schedule += f"[{i}:00] <活动>\n"
-
+        # AI 工具角色:凌晨 0-8 点为"空闲待命"(服务时段外不排活动),9 点起才排活动
+        # 防止 LLM 把主动走访/协调排进凌晨——模拟从业务时间开始,凌晨段永不被执行
+        is_ai_tool = self.config.get("role_type") == "ai_tool"
+        if is_ai_tool and wake_up == 0:
+            for i in range(9):
+                hourly_schedule += f"[{i}:00] 空闲待命,保持在线,无用户咨询\n"
+            for i in range(9, 24):
+                hourly_schedule += f"[{i}:00] <活动>\n"
+        else:
+            for i in range(wake_up):
+                hourly_schedule += f"[{i}:00] 睡觉\n"
+            for i in range(wake_up, 24):
+                hourly_schedule += f"[{i}:00] <活动>\n"
         prompt = self.build_prompt(
             "schedule_daily",
             {

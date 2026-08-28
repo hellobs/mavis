@@ -1,8 +1,8 @@
-"""mavisframework.runtime.goal_scorer — 目标权重决策级打分(硬约束)
+"""mavisframework.runtime.goal_scorer — embedding 语义对齐打分
 
-把 agent 的目标权重(goals,总和=1)真正参与决策计算:
-LLM 生成候选行动/日程后,用 embedding 计算行动文本与各目标的语义对齐度,
-加权得分 score = Σ w_i * sim(action, goal_i),供上层做选择/校验/重生成。
+计算文本与目标描述之间的语义对齐度(cosine similarity),供后果反馈
+(ConsequenceEngine)使用:行动相对优势 = sim_i / Σsim_j,再按约束权重加权。
+不再承担"选择/校验/重生成"职责——约束不进提示词,不强制行为。
 
 实现轻量:直接调 Ollama /api/embeddings(HTTP),不依赖 llama_index。
 """

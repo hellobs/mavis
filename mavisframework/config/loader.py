@@ -125,7 +125,7 @@ def load_config(start_time: str = "20240213-09:30", stride: int = 15,
     for a in (agents or []):
         config["agents"][a] = {
             "config_path": os.path.join(
-                assets_root, "agents", a.replace(" ", "_"), "agent.json"
+                assets_root, "agents", a, "agent.json"
             ),
         }
     return config
@@ -155,7 +155,7 @@ def load_config_from_log(checkpoints_folder: str,
     agents = config["agents"]
     for a in agents:
         config["agents"][a]["config_path"] = os.path.join(
-            assets_root, "agents", a.replace(" ", "_"), "agent.json"
+            assets_root, "agents", a, "agent.json"
         )
 
     return config

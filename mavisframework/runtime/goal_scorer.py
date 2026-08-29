@@ -9,8 +9,17 @@
 import os
 import math
 import json
+import time
+import threading
 import urllib.request
 from typing import Dict, List, Optional
+
+# 全局 embedding 并发限制:Ollama 单模型处理能力有限,
+# 6 个 agent 并行调用会排队超时(30s)导致大批 None → 倾向曲线变平。
+# 用信号量把同时进行的 embedding 请求限制到 2,超时放大到 60s + 重试。
+_EMBED_SEM = threading.Semaphore(2)
+_EMBED_MAX_RETRY = 3
+_EMBED_TIMEOUT = 60
 
 
 class GoalScorer:
@@ -26,21 +35,28 @@ class GoalScorer:
     # embedding
     # ------------------------------------------------------------------
     def embed(self, text: str) -> Optional[List[float]]:
-        """获取文本向量(带缓存)"""
+        """获取文本向量(带缓存 + 并发限制 + 重试)"""
         if text in self._cache:
             return self._cache[text]
-        try:
-            req = urllib.request.Request(
-                self.base_url + "/api/embeddings",
-                data=json.dumps({"model": self.model, "prompt": text}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(req, timeout=30) as r:
-                vec = json.loads(r.read().decode("utf-8"))["embedding"]
+        vec = None
+        with _EMBED_SEM:
+            for attempt in range(_EMBED_MAX_RETRY):
+                try:
+                    req = urllib.request.Request(
+                        self.base_url + "/api/embeddings",
+                        data=json.dumps({"model": self.model, "prompt": text}).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                    )
+                    with urllib.request.urlopen(req, timeout=_EMBED_TIMEOUT) as r:
+                        vec = json.loads(r.read().decode("utf-8"))["embedding"]
+                    break
+                except Exception:
+                    vec = None
+                    if attempt < _EMBED_MAX_RETRY - 1:
+                        time.sleep(2 * (attempt + 1))  # 退避重试
+        if vec is not None:
             self._cache[text] = vec
-            return vec
-        except Exception:
-            return None
+        return vec
 
     @staticmethod
     def _cosine(a: List[float], b: List[float]) -> float:

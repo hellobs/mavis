@@ -126,6 +126,13 @@ class Agent:
         else:
             self.value_tendency = dict(self.initial_tendency)
         self._tendency_window = []
+        # 续跑:恢复滑动窗口内容(渐进内化记忆;旧存档无该字段则从头累积)
+        _saved_window = _saved_status.get("tendency_window")
+        if isinstance(_saved_window, list) and _saved_window:
+            _win_size = int(config.get("think", {}).get("tendency_window", 15))
+            self._tendency_window = [
+                dict(w) for w in _saved_window if isinstance(w, dict)
+            ][-_win_size:]
         # 续跑:体验计数近似恢复(α 惯性不从头算,避免 resume 后倾向剧烈波动)
         try:
             self._tendency_obs = int(_saved_status.get("tendency_window_n", 0) or 0)
@@ -321,6 +328,9 @@ class Agent:
         # 审计:倾向变化轨迹(供 interventions/可审计链)
         self.status["value_tendency"] = dict(self.value_tendency)
         self.status["tendency_window_n"] = n
+        # 窗口内容随 checkpoint 持久化:resume 恢复后反馈逐条替换,
+        # 干预后的收敛保持渐进(而非重启清窗 → 一步跳变)
+        self.status["tendency_window"] = [dict(w) for w in self._tendency_window]
 
     def completion(self, func_hint, *args, **kwargs):
         assert hasattr(

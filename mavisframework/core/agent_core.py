@@ -221,8 +221,11 @@ class Agent:
         if not getattr(self, "value_tendency", None):
             self.value_tendency = dict(self.initial_tendency or {})
         # 滑动窗口:按行动变化点记录逐目标对齐(最近 N 次)
-        self._tendency_window = []
-        self._tendency_obs = 0
+        # 续跑(resume):窗口与体验计数从 checkpoint 恢复(__init__ 已还原),
+        # 这里不再清空——否则 α 从 1.0 重新衰减,倾向被底色钳制,
+        # 干预后曲线长时间"不动"(resume 连续性缺陷)
+        self._tendency_window = getattr(self, "_tendency_window", [])
+        self._tendency_obs = getattr(self, "_tendency_obs", 0)
         self._tendency_steps = 0
         self._last_window_action = None
         self._window_size = int(getattr(self, "think_config", {}).get("tendency_window", 15))

@@ -7,7 +7,7 @@
 结构:
     governance.json = {
         "roles": {
-            "老周": {"Maximize Returns": 0.7, "Risk Aversion": 0.3},
+            "an_example_agent": {"Maximize Returns": 0.7, "Risk Aversion": 0.3},
             ...
         }
     }

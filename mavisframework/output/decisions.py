@@ -37,7 +37,7 @@ def generate_decision_events(
 ) -> List[DecisionEvent]:
     """从 checkpoints 生成决策事件列表
 
-    roles: {角色名: 职位}(业务层提供,如 {"沈砚之": "首席投资顾问"})
+    roles: {角色名: 职位}(业务层提供,如 {"role_name": "Chief Investment Advisor"})
     """
     roles = roles or {}
     conversation = load_conversation(os.path.join(checkpoints_folder, "conversation.json"))

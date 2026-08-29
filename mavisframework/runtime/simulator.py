@@ -258,7 +258,7 @@ class Simulator:
 
 @Simulator.register_condition("poignancy")
 def _cond_poignancy(game, ev):
-    """condition: {"type":"poignancy","role":"老周","min":100}
+    """condition: {"type":"poignancy","role":"agent_name","min":100}
     当指定角色 status.poignancy 累计 >= min 时触发。
     """
     role = ev.get("condition", {}).get("role", "")
@@ -271,7 +271,7 @@ def _cond_poignancy(game, ev):
 
 @Simulator.register_condition("at_location")
 def _cond_at_location(game, ev):
-    """condition: {"type":"at_location","role":"老周","address":"会议室"}
+    """condition: {"type":"at_location","role":"agent_name","address":"meeting_room"}
     当指定角色位于含该地址的格子时触发。
     """
     role = ev.get("condition", {}).get("role", "")

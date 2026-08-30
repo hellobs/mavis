@@ -207,6 +207,18 @@ A complete demo platform is [Provenance](https://github.com/hellobs/provenance):
 its real-time service `live_fastapi.py` is a reference implementation of the
 framework route (FastAPI + WebSocket consuming framework contract messages).
 
+### 8.1 Companion tools in this repo
+
+- **`config_tool/`** — form-based role/scenario config generator (port 5002).
+  Business users fill role/duty/goal/relationship/story forms; it produces
+  `agent.json` / `relationships.json` / `story.json` validated by this
+  framework's validator, written into the Provenance platform's `agents/` and
+  `scenarios/` directories. See `config_tool/README.md`.
+- **`../provenance/tools/tilemap_to_maze.py`** — CLI converter (Tiled map →
+  `maze.json`) for the Provenance platform; no external deps. Its output is
+  consumed by `mavisframework/scene/maze.py`. See
+  `../provenance/tools/tilemap_to_maze_README.md`.
+
 ## 9. Unity Migration
 
 ```

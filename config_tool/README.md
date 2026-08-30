@@ -104,3 +104,12 @@ D:\zzr\provenance\provenance\scenarios\investment\story.json
 - 角色配置是"三层":行为层(人设/关系/剧情)+ 制度层(组织/职责/权限/规则)+ 价值层(人物初始底色 initial_tendency;制度约束 governance.json 由治理面板维护)
 - 关系 → `scenarios/<business>/relationships.json`,剧情 → `scenarios/<business>/story.json`,与角色独立维护
 - 迁移 Unity 时:角色→贴图的映射依赖需在 Unity 端同样处理(读 `texture_ref`)
+
+## 相关仓库与工具
+
+| 组件 | 位置 | 说明 |
+|---|---|---|
+| 仿真引擎 | [hellobs/mavis](https://github.com/hellobs/mavis)(本仓库) | mavisframework,本工具依赖其 validator |
+| 演示平台 | [hellobs/provenance](https://github.com/hellobs/provenance) | 本工具产物写入该平台 `agents/`、`scenarios/` |
+| 地图转换工具 | provenance `tools/tilemap_to_maze.py` | Tiled 地图 → maze.json(换场景用) |
+| Unity 版前端(已冻结) | [hellobs/Multi-Model-AI-Visualization-and-Interactive-Simulation-Platform](https://github.com/hellobs/Multi-Model-AI-Visualization-and-Interactive-Simulation-Platform) | 消费同一 WebSocket 契约,读取 `texture_ref` |

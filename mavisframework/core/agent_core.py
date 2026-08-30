@@ -107,6 +107,15 @@ class Agent:
         # 是否全天在线不睡觉:ai_tool 天然如此;user 角色可通过配置开启
         # (全球时区场景:投资顾问分布在多个时区,模拟时间下需保持清醒)
         self.no_sleep: bool = bool(config.get("no_sleep", False)) or self.role_type == "ai_tool"
+        # 全天在线角色:清洗续跑恢复的旧日程中残留的"睡觉"段
+        # (旧存档在 no_sleep 引入前生成,日程里仍有睡觉计划;新日程不会产生)
+        if self.no_sleep:
+            for _plan in getattr(self.schedule, "daily_schedule", []) or []:
+                _desc = str(_plan.get("describe", "") or "")
+                if "睡" in _desc or "sleep" in _desc.lower():
+                    _plan["describe"] = "空闲待命,保持在线,无用户咨询"
+                    for _dp in _plan.get("decompose", []) or []:
+                        _dp["describe"] = "空闲待命,保持在线,无用户咨询"
 
         # prompt
         from mavisframework.prompt import Scratch

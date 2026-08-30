@@ -139,12 +139,28 @@ class Agent:
             self.value_tendency = dict(self.initial_tendency)
         self._tendency_window = []
         # 续跑:恢复滑动窗口内容(渐进内化记忆;旧存档无该字段则从头累积)
+        # 条目兼容两种格式:旧存档=裸 feedback dict;新存档={action,alignment,feedback}
         _saved_window = _saved_status.get("tendency_window")
         if isinstance(_saved_window, list) and _saved_window:
             _win_size = int(config.get("think", {}).get("tendency_window", 15))
-            self._tendency_window = [
-                dict(w) for w in _saved_window if isinstance(w, dict)
-            ][-_win_size:]
+            _restored = []
+            for w in _saved_window:
+                if not isinstance(w, dict):
+                    continue
+                if "feedback" in w and isinstance(w.get("feedback"), dict):
+                    _restored.append({
+                        "action": str(w.get("action", "")),
+                        "alignment": dict(w.get("alignment", {}) or {}),
+                        "feedback": dict(w["feedback"]),
+                    })
+                else:
+                    # 旧格式:整条目即反馈 dict
+                    _restored.append({
+                        "action": "",
+                        "alignment": {},
+                        "feedback": dict(w),
+                    })
+            self._tendency_window = _restored[-_win_size:]
         # 续跑:体验计数近似恢复(α 惯性不从头算,避免 resume 后倾向剧烈波动)
         try:
             self._tendency_obs = int(_saved_status.get("tendency_window_n", 0) or 0)
@@ -309,18 +325,30 @@ class Agent:
         self._last_window_action = action_desc
         # 累计体验次数(独立于窗口截断,α 由此衰减)
         self._tendency_obs = getattr(self, "_tendency_obs", 0) + 1
-        # 入窗口
-        self._tendency_window.append(dict(feedback))
+        # 入窗口:记录"行动 + 对齐度 + 反馈"三件套(可解释性数据源)
+        # - action  : 做了什么(行动描述,解释"这条体验因何而来")
+        # - alignment: 行动对各目标的语义对齐度(为什么反馈偏向某目标)
+        # - feedback : 客观后果反馈(相对优势 × 约束权重,驱动倾向的内化量)
+        _align = {}
+        try:
+            _align = self.goal_alignment(action_desc) or {}
+        except Exception:
+            _align = {}
+        self._tendency_window.append({
+            "action": action_desc,
+            "alignment": dict(_align),
+            "feedback": dict(feedback),
+        })
         if len(self._tendency_window) > self._window_size:
             self._tendency_window.pop(0)
         # 加权平均(近期权重略高:指数衰减)
         n = len(self._tendency_window)
         goals = set()
         for w in self._tendency_window:
-            goals.update(w.keys())
+            goals.update(w.get("feedback", w).keys())
         tendency = {}
         for g in goals:
-            vals = [w.get(g, 0.0) for w in self._tendency_window]
+            vals = [w.get("feedback", w).get(g, 0.0) for w in self._tendency_window]
             weights = [0.5 ** (n - 1 - i) for i in range(n)]  # 近期权重高
             wsum = sum(weights)
             tendency[g] = sum(v * wt for v, wt in zip(vals, weights)) / wsum
@@ -347,7 +375,14 @@ class Agent:
         self.status["tendency_window_n"] = n
         # 窗口内容随 checkpoint 持久化:resume 恢复后反馈逐条替换,
         # 干预后的收敛保持渐进(而非重启清窗 → 一步跳变)
-        self.status["tendency_window"] = [dict(w) for w in self._tendency_window]
+        self.status["tendency_window"] = [
+            {
+                "action": w.get("action", ""),
+                "alignment": dict(w.get("alignment", {}) or {}),
+                "feedback": dict(w.get("feedback", w)),
+            }
+            for w in self._tendency_window
+        ]
 
     def completion(self, func_hint, *args, **kwargs):
         assert hasattr(

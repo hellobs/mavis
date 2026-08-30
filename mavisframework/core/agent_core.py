@@ -104,6 +104,9 @@ class Agent:
         self.relationships: List[dict] = config.get("relationships", [])
         # 角色类型:user(人)/ ai_tool(AI 工具角色)
         self.role_type: str = config.get("role_type", "user") or "user"
+        # 是否全天在线不睡觉:ai_tool 天然如此;user 角色可通过配置开启
+        # (全球时区场景:投资顾问分布在多个时区,模拟时间下需保持清醒)
+        self.no_sleep: bool = bool(config.get("no_sleep", False)) or self.role_type == "ai_tool"
 
         # prompt
         from mavisframework.prompt import Scratch
@@ -360,7 +363,7 @@ class Agent:
         plan, _ = self.make_schedule()
 
         if (
-            self.role_type != "ai_tool"  # AI 工具角色不睡觉,始终在线
+            not self.no_sleep  # 全天在线角色(ai_tool / 配置 no_sleep)不睡觉
             and (plan["describe"] == "sleeping" or "睡" in plan["describe"])
             and self.is_awake()
         ):
@@ -459,8 +462,8 @@ class Agent:
             self.schedule.create = self._timer.get_date()
             wake_up = self.completion("wake_up")
             init_schedule = self.completion("schedule_init", wake_up)
-            # AI 工具角色全天在线:强制无睡觉时段(wake_up=0)
-            if self.role_type == "ai_tool":
+            # 全天在线角色强制无睡觉时段(wake_up=0):ai_tool 或配置 no_sleep
+            if self.no_sleep:
                 wake_up = 0
                 # 日程来自业务配置(currently),框架中立:无业务描述时用中性默认
                 init_schedule = [self.scratch.currently or "随时准备为用户服务"]
@@ -476,9 +479,10 @@ class Agent:
                 )
                 if len(set(schedule.values())) >= self.schedule.diversity:
                     break
-            # AI 工具角色:服务时段外(凌晨)强制"空闲待命",防止 LLM 把主动活动排到无意义时段
-            # (模拟从业务时间开始,凌晨段永不被执行,排在那里的走访/协调会"消失")
-            if self.role_type == "ai_tool":
+            # 全天在线角色:凌晨(服务时段外)强制"空闲待命",防止 LLM 把
+            # 主动活动排到无意义时段(模拟从业务时间开始,凌晨段永不被执行,
+            # 排在那里的走访/协调会"消失");同时兜底覆盖任何残留"睡觉"段
+            if self.no_sleep:
                 service_start = int(
                     getattr(self, "think_config", {}).get("ai_service_start", 9) or 9
                 )
@@ -491,11 +495,12 @@ class Agent:
                             "schedule key '{}' 无法解析小时,跳过覆盖".format(hkey)
                         )
                         continue
-                    if hh < service_start:
+                    desc = str(schedule.get(hkey) or "")
+                    if hh < service_start or "睡" in desc or "sleep" in desc.lower():
                         schedule[hkey] = "空闲待命,保持在线,无用户咨询"
                         _covered += 1
                 self.logger.info(
-                    "ai_tool 凌晨覆盖: 覆盖 {} 段, 时段键样例 {} (service_start={})".format(
+                    "no_sleep 日程覆盖: 覆盖 {} 段, 时段键样例 {} (service_start={})".format(
                         _covered, list(schedule.keys())[:6], service_start
                     )
                 )
@@ -1083,8 +1088,8 @@ class Agent:
         return self.action.event if as_act else self.action.obj_event
 
     def is_awake(self):
-        # AI 工具角色始终在线(不睡觉)
-        if self.role_type == "ai_tool":
+        # 全天在线角色(ai_tool / 配置 no_sleep)始终清醒
+        if self.no_sleep:
             return True
         if not self.action:
             return True

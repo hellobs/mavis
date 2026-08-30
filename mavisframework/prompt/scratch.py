@@ -168,10 +168,12 @@ class Scratch:
 
     def prompt_schedule_daily(self, wake_up, daily_schedule):
         hourly_schedule = ""
-        # AI 工具角色:凌晨 0-8 点为"空闲待命"(服务时段外不排活动),9 点起才排活动
-        # 防止 LLM 把主动走访/协调排进凌晨——模拟从业务时间开始,凌晨段永不被执行
-        is_ai_tool = self.config.get("role_type") == "ai_tool"
-        if is_ai_tool and wake_up == 0:
+        # 全天在线角色(ai_tool / 配置 no_sleep):凌晨 0-8 点为"空闲待命"
+        # (服务时段外不排活动),9 点起才排活动,且全天不排睡觉段。
+        # 防止 LLM 把主动走访/协调排进凌晨——模拟从业务时间开始,凌晨段
+        # 永不被执行;也防止时区场景下角色被排进"睡觉"。
+        no_sleep = getattr(getattr(self, "agent", None), "no_sleep", False)
+        if no_sleep and wake_up == 0:
             for i in range(9):
                 hourly_schedule += f"[{i}:00] 空闲待命,保持在线,无用户咨询\n"
             for i in range(9, 24):

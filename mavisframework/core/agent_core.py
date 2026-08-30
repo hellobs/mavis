@@ -334,6 +334,11 @@ class Agent:
             all_goals = set(goals) | set(base.keys())
             for g in all_goals:
                 tendency[g] = alpha * (base.get(g, 0.0)) + (1 - alpha) * tendency.get(g, 0.0)
+        # 约束外目标剔除:制度删除的目标(专家干预后约束集缩小)应在内化中
+        # 消退至 0,而非靠底色残余长期残留(否则倾向曲线"多出一条"不跟随治理)
+        constraints = self.get_constraints()
+        if constraints:
+            tendency = {g: v for g, v in tendency.items() if g in constraints}
         # 归一化(总和=1)
         total = sum(tendency.values()) or 1.0
         self.value_tendency = {g: v / total for g, v in tendency.items()}

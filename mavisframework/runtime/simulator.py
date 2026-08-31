@@ -183,7 +183,7 @@ class Simulator:
                 with open(f"{checkpoints_folder}/conversation.json", "w", encoding="utf-8") as f:
                     f.write(json.dumps(game.conversation, indent=2, ensure_ascii=False))
                 if self.export_decisions and self.decisions_path:
-                    self._export_decisions(checkpoints_folder)
+                    self._export_decisions(checkpoints_folder, game)
 
             # 实时可视化:每个 step 完成后通知外部
             if on_step is not None:
@@ -226,12 +226,18 @@ class Simulator:
             status[agent_name] = {"coord": coord, "path": acfg.get("path", [])}
         return status
 
-    def _export_decisions(self, checkpoints_folder: str):
+    def _export_decisions(self, checkpoints_folder: str, game=None):
         from mavisframework.runtime.logger import get_logger
 
         logger = get_logger("simulator")
         from mavisframework.output.decisions import export_decision_stream
 
+        constraints = None
+        if game is not None and getattr(game, "governance", None) is not None:
+            try:
+                constraints = game.governance.all_constraints()
+            except Exception as e:
+                logger.warning(f"read constraints for decisions failed: {e}")
         try:
             export_decision_stream(
                 checkpoints_folder,
@@ -239,6 +245,7 @@ class Simulator:
                 simulation=os.path.basename(checkpoints_folder),
                 stride=self.stride,
                 roles=self.roles,
+                constraints=constraints,
             )
         except Exception as e:
             logger.warning(f"decisions export failed: {e}")

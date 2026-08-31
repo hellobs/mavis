@@ -7,7 +7,7 @@ category/risk_level 留空,由决策平台全权分类。
 import json
 import glob
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from mavisframework.runtime.protocol import DecisionEvent, DecisionEventStream
 
@@ -34,12 +34,16 @@ def extract_involves(conversation: Dict, time_key: str) -> List[str]:
 def generate_decision_events(
     checkpoints_folder: str,
     roles: Dict[str, str] = None,
+    constraints: Optional[Dict[str, Dict[str, float]]] = None,
 ) -> List[DecisionEvent]:
     """从 checkpoints 生成决策事件列表
 
     roles: {角色名: 职位}(业务层提供,如 {"role_name": "Chief Investment Advisor"})
+    constraints: {角色名: {目标: 权重}}(制度约束)
+        goal_score 统一口径 = sum(权重 × 对齐度);缺约束时兼容回退为对齐度均值。
     """
     roles = roles or {}
+    constraints = constraints or {}
     conversation = load_conversation(os.path.join(checkpoints_folder, "conversation.json"))
 
     files = sorted(
@@ -64,9 +68,12 @@ def generate_decision_events(
             status = status if isinstance(status, dict) else {}
             alignment = status.get("goal_alignment") or {}
             tendency = status.get("value_tendency") or {}
-            # IVD:goal_score = 行动对约束的整体对齐度(逐目标 alignment 均值)
+            # IVD:goal_score = 行动对约束的整体对齐度(统一口径:约束加权 sum(w×alignment))
             goal_score = None
-            if alignment:
+            _cons = constraints.get(agent_name) or {}
+            if _cons and alignment:
+                goal_score = sum(w * alignment.get(g, 0.0) for g, w in _cons.items())
+            elif alignment:
                 goal_score = sum(alignment.values()) / len(alignment)
             events.append({
                 "id": "e-%04d" % _ev_idx,
@@ -96,9 +103,10 @@ def export_decision_stream(
     simulation: str = "",
     stride: int = 2,
     roles: Dict[str, str] = None,
+    constraints: Optional[Dict[str, Dict[str, float]]] = None,
 ) -> str:
     """导出决策事件流 JSON(供决策平台导入)"""
-    events = generate_decision_events(checkpoints_folder, roles)
+    events = generate_decision_events(checkpoints_folder, roles, constraints)
     # 起始时间取第一个存档
     start_time = ""
     files = sorted(

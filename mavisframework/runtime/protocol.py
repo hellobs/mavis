@@ -73,7 +73,7 @@ class DecisionEvent(TypedDict, total=False):
     location: str                 # 地址
     predicate: str                # "此时" / "对话" / "正在"
     poignancy: int                # 事件重要性分
-    goal_score: Optional[float]   # IVD:行动对约束的整体对齐度(alignment 均值)
+    goal_score: Optional[float]   # IVD:行动对约束的整体对齐度(统一口径:约束加权 sum(w×alignment))
     goal_alignment: Dict[str, float]  # IVD:逐目标即时对齐(审计)
     value_tendency: Dict[str, float]  # IVD:内化的价值倾向(审计,体验累积)
     involves: List[str]           # 涉他(对话/协作对象)

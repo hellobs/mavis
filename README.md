@@ -166,10 +166,14 @@ Key semantics:
   the institution *built* them that way. **user roles** start at their
   `initial_tendency` persona baseline (or uniform if unset), then experience
   modulates it.
-- **Inertia blend**: `tendency = α·persona + (1−α)·experience`,
-  `α = max(0.1, 1 − experiences/8)` — starts at the persona, experience takes
-  over within ~8 experiences, but character leaves a 10% residue (personality
-  is sticky).
+- **Inertia blend**: `tendency = α·persona + (1−α)·experience` with an
+  *adaptive transition period*: `α = max(0.1, 1 − experiences / window_size)`,
+  where `window_size` is the memory-window capacity (`think.tendency_window`,
+  default 15). The transition ≈ one full window of experiences instead of a
+  magic constant; a smaller window converges faster, a larger one more slowly.
+  The 0.1 floor keeps a 10% character residue (personality is sticky). The
+  current `α`/decay bound/observed count are recorded per update in
+  `tendency_meta` for audit/interpretability.
 - **Sampling**: feedback is recorded at *action-change points* plus a periodic
   refresh (`tendency_refresh`, default 5 steps) so a persistent action still
   reinforces the tendency instead of freezing the curve.

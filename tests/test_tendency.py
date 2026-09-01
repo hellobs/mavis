@@ -88,7 +88,7 @@ class TestInitialTendency:
         assert agent.value_tendency == {}
 
     def test_inertia_blend_first_experience(self):
-        # 第一次体验:α = max(0.1, 1-1/20) = 0.95 → 倾向 ≈ 底色(人设主导)
+        # 第一次体验:α = max(0.1, 1-1/15) ≈ 0.933 → 倾向 ≈ 底色(人设主导)
         agent = _mk_agent({"Maximize Returns": 0.8, "Risk Aversion": 0.2})
         agent.attach_governance(None, None)
         # 假后果反馈:只有 Maximize Returns 被命中(0.9)
@@ -111,6 +111,42 @@ class TestInitialTendency:
         # 体验足够多后 Risk Aversion 应占主导,但底色残余使 Maximize Returns 不归零
         assert t["Risk Aversion"] > t["Maximize Returns"]
         assert t["Maximize Returns"] > 0.02  # 性格残余
+
+    def test_adaptive_decay_bound_is_window_size(self):
+        # 自适应过渡期:α 衰减分母 = 记忆窗口容量(tendency_window),而非魔法数"8"
+        # 窗口越小过渡越快:wal 容量 3 → 满 3 次体验后 α→0.1;容量 30 → 需更多体验
+        small = _mk_agent({"Maximize Returns": 0.9, "Risk Aversion": 0.1}, window_size=3)
+        large = _mk_agent({"Maximize Returns": 0.9, "Risk Aversion": 0.1}, window_size=30)
+        small.attach_governance(None, None)
+        large.attach_governance(None, None)
+        small._consequence_fn = lambda self, d: {"Risk Aversion": 0.9, "Maximize Returns": 0.1}
+        large._consequence_fn = lambda self, d: {"Risk Aversion": 0.9, "Maximize Returns": 0.1}
+        # 各推 5 次体验:小窗口已装满窗口 → α 触底 0.1;大窗口 5/30 → α 仍高
+        for _ in range(5):
+            small.observe_consequence(f"s-{_}")
+            large.observe_consequence(f"l-{_}")
+        # 审计元信息记录 decay_total = 各自的窗口容量
+        assert small.status["tendency_meta"]["decay_total"] == 3
+        assert large.status["tendency_meta"]["decay_total"] == 30
+        # 小窗口 α 触底更快 → 底色占更少 → 倾向更快转向体验
+        small_alpha = small.status["tendency_meta"]["alpha"]
+        large_alpha = large.status["tendency_meta"]["alpha"]
+        assert small_alpha <= large_alpha
+        # 小窗口几乎触底(5 obs ≥ 3 容量 → α=0.1)
+        assert small_alpha == pytest.approx(0.1)
+        # 大窗口仅 5/30 → α 仍明显高于 0.1
+        assert large_alpha > 0.8
+
+    def test_tendency_meta_reported_on_every_update(self):
+        # 每次倾向更新都带 alpha/decay_total/obs,供"内化过渡程度"可解释
+        agent = _mk_agent({"Maximize Returns": 0.8, "Risk Aversion": 0.2})
+        agent.attach_governance(None, None)
+        agent._consequence_fn = lambda self, d: {"Maximize Returns": 0.9}
+        agent.observe_consequence("act once")
+        m = agent.status.get("tendency_meta", {})
+        assert m.get("obs") == 1
+        assert m.get("decay_total") == 15  # 默认窗口容量
+        assert 0.0 < m.get("alpha", 0.0) < 1.0
 
     def test_persistent_action_refreshes_periodically(self):
         # 同一行动持续时,每隔 tendency_refresh 步仍计入(持续强化,曲线不静止)

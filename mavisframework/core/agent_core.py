@@ -308,7 +308,8 @@ class Agent:
         1. 客观后果(consequence_fn)给出各目标的"结果好坏"反馈
         2. 若行动变了,将本次逐目标反馈计入滑动窗口
         3. 窗口加权平均 → 与人物初始底色惯性混合 → 归一化 → value_tendency
-        4. 惯性:α = max(0.1, 1 - n/8),起步=人设底色,随体验累积渐降(性格残余)
+        4. 惯性:α = max(0.1, 1 - obs/窗口容量),起步=人设底色,随体验累积渐降
+           (过渡期自适应绑定记忆窗口大小,下限 0.1 保 10% 性格残余)
         5. 记录倾向变化轨迹(可审计)
         """
         fn = getattr(self, "_consequence_fn", None)
@@ -369,12 +370,14 @@ class Agent:
             wsum = sum(weights)
             tendency[g] = sum(v * wt for v, wt in zip(vals, weights)) / wsum
         # 人物底色惯性混合:起步=人设,体验接管,性格有残余(α 随累计体验衰减)
-        # α = max(0.1, 1 - n/8):约 8 次体验后体验主导,性格保留 10% 残余
-        # (ν/4 过快——底色几乎瞬间退出,倾向被单边行动迅速拉到权重线,
-        #  削弱"内化滞后"叙事;ν/8 让过渡可见)
+        # 自适应过渡期:α 的衰减分母 = 体验记忆窗口容量(self._window_size,
+        # 即 think.tendency_window,默认 15)——"过渡期 ≈ 一趟装满体验记忆
+        # 窗口所需的观测数"。窗口越小过渡越快,窗口越大越缓慢,与记忆容量
+        # 一致,避免魔法数"8"。下限 0.1 保证性格 10% 残余(随体验收敛但不归零)
         base = self.initial_tendency or {}
+        decay_total = max(1, int(getattr(self, "_window_size", 15) or 15))
+        alpha = max(0.1, 1.0 - self._tendency_obs / decay_total)
         if base:
-            alpha = max(0.1, 1.0 - self._tendency_obs / 8.0)
             all_goals = set(goals) | set(base.keys())
             for g in all_goals:
                 tendency[g] = alpha * (base.get(g, 0.0)) + (1 - alpha) * tendency.get(g, 0.0)
@@ -398,6 +401,13 @@ class Agent:
         # 审计:倾向变化轨迹(供 interventions/可审计链)
         self.status["value_tendency"] = dict(self.value_tendency)
         self.status["tendency_window_n"] = n
+        # 审计:倾向过渡元信息——α(底色占比)与记忆窗口容量(bound 为衰减分母),
+        # 让"倾向此刻过渡到几成"可解释(自适应过渡期替代魔法数后仍可追溯)
+        self.status["tendency_meta"] = {
+            "alpha": round(alpha, 4),
+            "decay_total": decay_total,
+            "obs": self._tendency_obs,
+        }
         # 窗口内容随 checkpoint 持久化:resume 恢复后反馈逐条替换,
         # 干预后的收敛保持渐进(而非重启清窗 → 一步跳变)
         self.status["tendency_window"] = [

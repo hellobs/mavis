@@ -38,3 +38,5 @@ Requirements:
 - Plan descriptions must be based on the given memory nodes
 - Descriptions should be concise and consistent with the agent's daily habits
 - Ensure the returned data format complies with the schema
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

@@ -37,3 +37,5 @@ Requirements:
 - Questions should be based on the given memory nodes
 - Questions should be concise and clear, easy to guide reflection
 - Make sure to follow the returned format schema
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

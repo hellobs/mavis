@@ -21,3 +21,5 @@ Based on the examples above, convert the following action into emojis (using thr
 
 Action: ${action}
 Emojis:
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

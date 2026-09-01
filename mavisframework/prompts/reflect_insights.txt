@@ -39,3 +39,5 @@ Requirements:
 - Insights must be insightful and thought-provoking
 - Node numbers should be separated by commas, e.g., "1,2,3"
 - Ensure that the returned data format follows the schema
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

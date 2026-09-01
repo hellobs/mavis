@@ -9,3 +9,5 @@ Value tendency (formed from your own experiences): ${goals}
 Your current value tendency reflects what you have learned through your experiences about which actions lead to better outcomes. Let it inform your decisions, but your judgment remains your own — your personality, memories, and the situation all matter.
 
 Today is ${date}. ${currently}
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input. All generated text (schedules, actions, dialogue, reflections) must be in English.

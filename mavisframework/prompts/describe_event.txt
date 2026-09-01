@@ -32,3 +32,5 @@ Requirements:
 Based on the example and the input below, output the answer directly.
 Input: ${action}
 Output:
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

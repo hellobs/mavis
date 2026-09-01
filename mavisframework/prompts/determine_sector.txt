@@ -13,3 +13,5 @@ Requirements:
 4. Output the selected sector directly.
 
 ${agent} should go to:
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

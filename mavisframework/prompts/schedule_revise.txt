@@ -40,3 +40,5 @@ Make sure the returned data format conforms to the schema:
 ]
 
 Continue the remaining portion of the schedule (must end before ${end}):
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

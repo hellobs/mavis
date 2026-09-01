@@ -11,3 +11,5 @@ ${another_status}
 ${relation}
 
 Based on the background above, is ${agent} likely to initiate a conversation with ${another}? Answer with only "Yes" or "No":
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

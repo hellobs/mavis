@@ -21,3 +21,5 @@ Based on the examples above, think step by step about the state of ${object}:
 Step 1: ${agent} is ${action} with ${object} nearby
 Step 2: Describe the state of ${object}.
 Output:
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

@@ -4,3 +4,5 @@ ${conversation}
 """
 
 From the perspective of ${agent}, describe the most interesting part of the conversation in one sentence.
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

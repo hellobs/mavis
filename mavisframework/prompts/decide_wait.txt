@@ -8,3 +8,5 @@ Based on the examples above, answer which option best fits the following task:
 ${task}
 
 Do not output your reasoning process. Output the answer directly:
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

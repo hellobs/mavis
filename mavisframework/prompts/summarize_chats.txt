@@ -4,3 +4,5 @@ ${conversation}
 """
 
 Summarize the above dialogue in a short sentence of no more than 100 characters:
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

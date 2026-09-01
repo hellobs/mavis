@@ -8,3 +8,5 @@ Requirements:
 3. Output the selected result directly.
 
 The object most relevant to the current activity is:
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

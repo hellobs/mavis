@@ -10,3 +10,5 @@ If the last utterance expresses a desire to keep discussing with the other party
 </Judgment Logic>
 
 Based on the <Conversation Log> and <Judgment Logic> above, determine whether the conversation between ${agent} and ${another} has come to an end. Answer with only "yes" or "no":
+
+IMPORTANT: Always respond in English, regardless of the language of the context or user input.

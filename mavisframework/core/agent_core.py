@@ -152,6 +152,7 @@ class Agent:
                         "action": str(w.get("action", "")),
                         "alignment": dict(w.get("alignment", {}) or {}),
                         "feedback": dict(w["feedback"]),
+                        "time": str(w.get("time", "") or ""),
                     })
                 else:
                     # 旧格式:整条目即反馈 dict
@@ -159,6 +160,7 @@ class Agent:
                         "action": "",
                         "alignment": {},
                         "feedback": dict(w),
+                        "time": "",
                     })
             self._tendency_window = _restored[-_win_size:]
         # 续跑:体验计数近似恢复(α 惯性不从头算,避免 resume 后倾向剧烈波动)
@@ -341,10 +343,17 @@ class Agent:
             _align = self.goal_alignment(action_desc) or {}
         except Exception:
             _align = {}
+        # 记录模拟时间(窗口明细按时间从早到晚展示;旧存档无 time 字段则留空)
+        _w_time = ""
+        try:
+            _w_time = self._timer.get_date("%Y%m%d-%H:%M")
+        except Exception:
+            _w_time = ""
         self._tendency_window.append({
             "action": action_desc,
             "alignment": dict(_align),
             "feedback": dict(feedback),
+            "time": _w_time,
         })
         if len(self._tendency_window) > self._window_size:
             self._tendency_window.pop(0)
@@ -396,6 +405,7 @@ class Agent:
                 "action": w.get("action", ""),
                 "alignment": dict(w.get("alignment", {}) or {}),
                 "feedback": dict(w.get("feedback", w)),
+                "time": str(w.get("time", "") or ""),
             }
             for w in self._tendency_window
         ]

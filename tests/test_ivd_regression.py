@@ -100,6 +100,7 @@ class TestWindowPersistence:
         assert "action" in entry
         assert "alignment" in entry
         assert "feedback" in entry
+        assert "time" in entry  # 窗口明细按时间从早到晚展示所需
         assert entry["action"] == "do task one"
         assert entry["feedback"]["A"] == 0.8
 

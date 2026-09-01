@@ -167,7 +167,12 @@ class Agent:
         except (TypeError, ValueError):
             self._tendency_obs = 0
         self._tendency_steps = 0
-        self._last_window_action = None
+        # V1:恢复"最后采样行动"——否则 resume 后第一次 observe_consequence
+        # 因 None ≠ action 而误判"行动变化",立即采样一条多余体验,破坏
+        # "resume 连续性"(行动未变应等 refresh_interval 才刷新)
+        self._last_window_action = (
+            self._tendency_window[-1].get("action", "") if self._tendency_window else None
+        )
         self._window_size = int(config.get("think", {}).get("tendency_window", 15))
         self._governance = None
         self._consequence_fn = None
@@ -262,7 +267,9 @@ class Agent:
         self._tendency_window = getattr(self, "_tendency_window", [])
         self._tendency_obs = getattr(self, "_tendency_obs", 0)
         self._tendency_steps = 0
-        self._last_window_action = None
+        # V1:保留已恢复的"最后采样行动"(resume 时 __init__ 已从窗口恢复),
+        # 不重置为 None——否则 resume 首步误采样,破坏连续性
+        self._last_window_action = getattr(self, "_last_window_action", None)
         self._window_size = int(getattr(self, "think_config", {}).get("tendency_window", 15))
 
     def get_constraints(self) -> dict:
@@ -367,6 +374,15 @@ class Agent:
         constraints = self.get_constraints()
         if constraints:
             tendency = {g: v for g, v in tendency.items() if g in constraints}
+            # V2:同步清理窗口内被删目标的 feedback/alignment,避免"影子目标"
+            # 残留在窗口里(滑出前仍影响加权平均,倾向曲线删除目标后仍显示尾巴)
+            for _w in self._tendency_window:
+                _fb = _w.get("feedback", {})
+                if _fb:
+                    _w["feedback"] = {g: v for g, v in _fb.items() if g in constraints}
+                _al = _w.get("alignment", {})
+                if _al:
+                    _w["alignment"] = {g: v for g, v in _al.items() if g in constraints}
         # 归一化(总和=1)
         total = sum(tendency.values()) or 1.0
         self.value_tendency = {g: v / total for g, v in tendency.items()}

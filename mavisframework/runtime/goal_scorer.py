@@ -21,6 +21,15 @@ _EMBED_SEM = threading.Semaphore(2)
 _EMBED_MAX_RETRY = 3
 _EMBED_TIMEOUT = 60
 
+# V6:类级共享 embedding 缓存——agent 的 GoalScorer 与 ConsequenceEngine 的
+# GoalScorer 是不同实例(agent._goal_scorer vs engine._scorer),若各自
+# 实例缓存,同一 action/goal 文本会被 embed 两次(observe 里 consequence
+# 算 feedback + goal_alignment 算对齐,2 倍调用)。类级缓存跨实例共享,
+# 首次命中后不再重复网络请求。带上限防长期运行内存增长。
+_EMBED_CLASS_CACHE: Dict[str, List[float]] = {}
+_EMBED_CACHE_MAX = 2000
+_EMBED_CACHE_LOCK = threading.Lock()
+
 
 class GoalScorer:
     """基于 embedding 的目标一致性打分器"""
@@ -35,7 +44,11 @@ class GoalScorer:
     # embedding
     # ------------------------------------------------------------------
     def embed(self, text: str) -> Optional[List[float]]:
-        """获取文本向量(带缓存 + 并发限制 + 重试)"""
+        """获取文本向量(类级共享缓存 + 并发限制 + 重试)"""
+        # 先查类级缓存(跨实例共享,避免重复 embed)
+        with _EMBED_CACHE_LOCK:
+            if text in _EMBED_CLASS_CACHE:
+                return _EMBED_CLASS_CACHE[text]
         if text in self._cache:
             return self._cache[text]
         vec = None
@@ -56,6 +69,11 @@ class GoalScorer:
                         time.sleep(2 * (attempt + 1))  # 退避重试
         if vec is not None:
             self._cache[text] = vec
+            with _EMBED_CACHE_LOCK:
+                # 简单上限:超限清空(行动文本多样,保留最近;避免无限增长)
+                if len(_EMBED_CLASS_CACHE) >= _EMBED_CACHE_MAX:
+                    _EMBED_CLASS_CACHE.clear()
+                _EMBED_CLASS_CACHE[text] = vec
         return vec
 
     @staticmethod

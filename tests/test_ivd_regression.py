@@ -194,3 +194,56 @@ class TestConstraintSync:
         # 治理层更新(等价干预同步内存)
         gov.data["roles"]["测试人"] = {"A": 0.9, "B": 0.1}
         assert agent.get_constraints() == {"A": 0.9, "B": 0.1}
+
+
+class TestV1ResumeLastAction:
+    def test_resume_restores_last_window_action(self):
+        # V1:resume 后 _last_window_action 应从窗口最后一条恢复,
+        # 否则首步误判"行动变化"立即采样(破坏连续性)
+        saved_status = {
+            "value_tendency": {"A": 0.6, "B": 0.4},
+            "tendency_window_n": 2,
+            "tendency_window": [
+                {"action": "old-task-1", "alignment": {"A": 0.6}, "feedback": {"A": 0.7, "B": 0.3}},
+                {"action": "current-task", "alignment": {"A": 0.6}, "feedback": {"A": 0.7, "B": 0.3}},
+            ],
+        }
+        agent = _mk_agent({"A": 0.5, "B": 0.5}, status=saved_status)
+        assert agent._last_window_action == "current-task"
+
+    def test_resume_same_action_not_immediately_sampled(self):
+        # V1:resume 后若行动与最后一条相同,首步不应立即入窗(需等 refresh)
+        saved_status = {
+            "value_tendency": {"A": 0.6, "B": 0.4},
+            "tendency_window_n": 2,
+            "tendency_window": [
+                {"action": "x", "alignment": {"A": 0.6}, "feedback": {"A": 0.7, "B": 0.3}},
+            ],
+        }
+        agent = _mk_agent({"A": 0.5, "B": 0.5}, status=saved_status)
+        gov = Governance()
+        gov.data = {"roles": {"测试人": {"A": 0.6, "B": 0.4}}}
+        agent.attach_governance(gov, lambda self, d: {"A": 0.7, "B": 0.3})
+        agent.think_config["tendency_refresh"] = 5
+        obs_before = agent._tendency_obs
+        agent.observe_consequence("x")  # 与最后一条相同 → 不应立即采样
+        assert agent._tendency_obs == obs_before  # 体验数不变
+
+
+class TestV2WindowConstraintFiltering:
+    def test_deleted_goal_removed_from_window(self):
+        # V2:约束删除目标后,窗口内该目标的 feedback/alignment 也应清理,
+        # 不留"影子目标"(滑出前仍影响加权平均)
+        agent = _mk_agent({"A": 0.4, "B": 0.3, "C": 0.3}, window_size=5)
+        # 先带 C 观察(窗口里留下 C 的反馈)
+        gov = Governance()
+        gov.data = {"roles": {"测试人": {"A": 0.4, "B": 0.3, "C": 0.3}}}
+        agent.attach_governance(gov, lambda self, d: {"A": 0.5, "B": 0.3, "C": 0.2})
+        agent.observe_consequence("do one")
+        assert "C" in agent._tendency_window[0]["feedback"]
+        # 专家删除 C(约束集缩小)→ 下一次 observe 后窗口里 C 应被清理
+        gov.data["roles"]["测试人"] = {"A": 0.6, "B": 0.4}
+        agent.observe_consequence("do two")  # changed → 立即采样并清理
+        for w in agent._tendency_window:
+            assert "C" not in w.get("feedback", {})
+            assert "C" not in w.get("alignment", {})

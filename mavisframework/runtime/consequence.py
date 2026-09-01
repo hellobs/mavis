@@ -25,13 +25,15 @@ class ConsequenceEngine:
     """客观后果判定:行动文本 → 各目标的结果反馈"""
 
     def __init__(self, volatility: float = 0.5, market_trend: str = "volatile",
-                 scorer=None):
+                 scorer=None, softmax_temp: float = 1.0):
         """volatility: 市场波动度(0-1);market_trend: volatile/stable
         scorer: GoalScorer 实例(可注入,便于测试);缺省懒加载
+        softmax_temp: 相对优势 softmax 温度(>1 平滑对比度,<1 放大)
         """
         self.volatility = volatility
         self.market_trend = market_trend
         self._scorer = scorer
+        self.softmax_temp = softmax_temp
         # embedding 稳定性监控(可观测性):
         # - total_calls: 反馈计算总次数
         # - degraded_calls: 降级(embedding 不可用)次数
@@ -63,14 +65,16 @@ class ConsequenceEngine:
         return self._scorer
 
     def _degrade(self, error: str, constraints: Dict) -> Dict[str, float]:
-        """降级路径:embedding 不可用 → 中性反馈(0.5×权重)
+        """降级路径:embedding 不可用 → 中性反馈(= 约束权重)
 
         记录失败计数与原因,供 health() 暴露(不静默)。
-        中性反馈归一化后 = 约束权重本身,即倾向退到制度期望。
+        V4:返回 {g: w}(而非 0.5×w)——与正常反馈(softmax 占比 × w)
+        量纲一致(Σ=Σw)。旧 0.5×w 在窗口混合时整体被低估,
+        "倾向退到制度期望"的语义不成立;改 w 后降级即退到约束线。
         """
         self.degraded_calls += 1
         self.last_error = error
-        return {g: 0.5 * w for g, w in constraints.items() if w and w > 0}
+        return {g: w for g, w in constraints.items() if w and w > 0}
 
     def feedback(self, agent, action_desc: str) -> Dict[str, float]:
         """对一次行动给出各目标的结果反馈(0-1)
@@ -112,21 +116,27 @@ class ConsequenceEngine:
                 if g_vec is None:
                     continue
                 sim = scorer._cosine(a_vec, g_vec)
-                sims[goal] = max(0.0, min(1.0, sim))
+                # V8:保留负相似度(不截断到 [0,1])——行动明确违背某目标时,
+                # 负 sim 经 softmax 后占比小,该目标反馈弱(内化弱),而非
+                # 截断为 0 后"无惩罚"、倾向不降反稳
+                sims[goal] = sim
             if not sims:
                 return self._degrade("all goal embeddings failed", constraints)
-            # 相对优势:反馈 = 该目标相似度 / 所有约束目标相似度之和
-            # (softmax 式相对化,天然区分"这个行动更贴合哪个目标",
-            #  且总和=1,不再受绝对相似度挤压影响)
-            total = sum(sims.values())
-            if total <= 1e-6:
-                return self._degrade("all similarities zero", constraints)
+            # 相对优势:softmax(sim) —— 天然处理负值、自动归一化(Σ=1)、
+            # 保留相对差异。温度可调(softmax_temp,>1 平滑对比度)。
+            # V8:替代旧的线性 sim/Σsim(负值会扭曲分母,且截断丢反向信号)。
+            import math as _m
+            temp = float(getattr(self, "softmax_temp", 1.0))
+            exp_v = {g: _m.exp(s / temp) for g, s in sims.items()}
+            denom = sum(exp_v.values())
+            if denom <= 1e-12:
+                return self._degrade("softmax denominator zero", constraints)
             out = {}
             for goal, weight in constraints.items():
-                if weight <= 0 or goal not in sims:
+                if weight <= 0 or goal not in exp_v:
                     continue
-                out[goal] = (sims[goal] / total) * weight
+                out[goal] = (exp_v[goal] / denom) * weight
             return out
         except Exception as e:
-            # 降级:embedding 异常 → 中性反馈(0.5×权重),倾向退到制度期望
+            # 降级:embedding 异常 → 中性反馈(= 约束权重),倾向退到制度期望
             return self._degrade(str(e), constraints)

@@ -77,7 +77,8 @@ class TestConsequenceEngine:
         assert set(fb.keys()) == {"Risk Aversion"}
 
     def test_feedback_uses_similarity_times_weight(self):
-        # 相对优势:sim A=1.0, B=0.0 → 占比 A=1.0, B=0.0 × 权重 [0.7, 0.3]
+        # softmax 相对优势:sim A=1.0, B=0.0 → exp 占比 A=e/(e+1)≈0.731, B≈0.269
+        # × 权重 [0.7, 0.3]
         scorer = _FakeScorer(
             action_vec=[1.0, 0.0],
             goal_vecs={"A": [1.0, 0.0], "B": [0.0, 1.0]},
@@ -85,12 +86,13 @@ class TestConsequenceEngine:
         self.engine._scorer = scorer
         agent = _FakeAgent({"A": 0.7, "B": 0.3})
         fb = self.engine.feedback(agent, "do A-like thing")
-        assert fb["A"] == pytest.approx(1.0 * 0.7)
-        assert fb["B"] == pytest.approx(0.0 * 0.3)
+        import math
+        sa = math.exp(1.0) / (math.exp(1.0) + math.exp(0.0))  # 0.731
+        assert fb["A"] == pytest.approx(sa * 0.7, abs=1e-6)
+        assert fb["B"] == pytest.approx((1 - sa) * 0.3, abs=1e-6)
 
     def test_relative_advantage_amplifies_difference(self):
-        # 构造 sim: A=0.5, B=0.55 → 占比 0.476 / 0.524,区分度放大且保留中间态
-        # 用 action=[1,0,0], A=[0.5, sqrt(0.75), 0] → cos=0.5
+        # 构造 sim: A=0.5, B=0.55 → softmax 占比 A<B,区分度保留且不极端
         import math
         s3 = math.sqrt(0.75)
         scorer = _FakeScorer(
@@ -100,9 +102,29 @@ class TestConsequenceEngine:
         self.engine._scorer = scorer
         agent = _FakeAgent({"A": 0.5, "B": 0.5})
         fb = self.engine.feedback(agent, "x")
-        # 占比: A=0.5/1.05=0.476, B=0.55/1.05=0.524;×权重0.5
-        assert fb["A"] == pytest.approx((0.5 / 1.05) * 0.5, abs=1e-6)
-        assert fb["B"] == pytest.approx((0.55 / 1.05) * 0.5, abs=1e-6)
+        # softmax: e^0.5/(e^0.5+e^0.55) < e^0.55/(...) → B 占比略高
+        sa = math.exp(0.5) / (math.exp(0.5) + math.exp(0.55))
+        assert fb["A"] == pytest.approx(sa * 0.5, abs=1e-6)
+        assert fb["B"] == pytest.approx((1 - sa) * 0.5, abs=1e-6)
+        assert fb["B"] > fb["A"]
+
+    def test_negative_similarity_reduces_feedback(self):
+        # V8:负相似度(行动违背目标)经 softmax 后占比小 → 该目标反馈弱,
+        # 而非截断为 0 后"无惩罚"
+        scorer = _FakeScorer(
+            action_vec=[1.0, 0.0],
+            goal_vecs={"Align": [1.0, 0.0], "Oppose": [-1.0, 0.0]},  # Oppose 相似度为负
+        )
+        self.engine._scorer = scorer
+        agent = _FakeAgent({"Align": 0.5, "Oppose": 0.5})
+        fb = self.engine.feedback(agent, "act")
+        import math
+        sa = math.exp(1.0) / (math.exp(1.0) + math.exp(-1.0))
+        assert fb["Align"] == pytest.approx(sa * 0.5, abs=1e-6)
+        assert fb["Oppose"] == pytest.approx((1 - sa) * 0.5, abs=1e-6)
+        # 负相似度使 Oppose 反馈显著低于 Align(截断方案下两者因相对优势也分,
+        # 但 softmax 显式保留反向信号;此处断言 Align 主导即可)
+        assert fb["Align"] > fb["Oppose"] * 3
 
     def test_weight_scales_feedback(self):
         # 同一行动,权重 0.9 vs 0.5:高权重者反馈更高
@@ -113,7 +135,7 @@ class TestConsequenceEngine:
         assert fb_high["G"] > fb_low["G"]
 
     def test_embedding_failure_falls_back_neutral(self):
-        # scorer.embed 抛异常 → 中性反馈 0.5×权重
+        # scorer.embed 抛异常 → 中性反馈 = 约束权重(V4:不再是 0.5×w)
         class _Broken:
             def embed(self, text):
                 raise RuntimeError("ollama down")
@@ -121,7 +143,7 @@ class TestConsequenceEngine:
         self.engine._scorer = _Broken()
         agent = _FakeAgent({"Serve Users": 0.6, "Risk Alerting": 0.4})
         fb = self.engine.feedback(agent, "anything")
-        assert fb == {"Serve Users": 0.3, "Risk Alerting": 0.2}
+        assert fb == {"Serve Users": 0.6, "Risk Alerting": 0.4}
 
     def test_health_tracks_degradation(self):
         # 健康度:成功调用不降级;embedding 失败计入 degraded_calls 与 last_error

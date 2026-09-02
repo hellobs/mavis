@@ -14,53 +14,56 @@ from mavisframework.core.agent_core import Agent
 from mavisframework.runtime.governance import Governance
 
 
+class _Tile:
+    def __init__(self, coord=(0, 0)):
+        self.coord = list(coord)
+        self.events = []
+        self.address = ["the Ville", "测试区"]
+    def get_address(self, *a, **kw):
+        if kw.get("as_list"):
+            return list(self.address)
+        return ":".join(self.address)
+    def has_address(self, *a):
+        return False
+    def update_events(self, ev):
+        return False
+    def add_event(self, ev):
+        self.events.append(ev)
+    def remove_events(self, **kw):
+        self.events = []
+    def get_events(self):
+        return list(self.events)
+    def abstract(self):
+        return {"address": self.address}
+
+
+class _Maze:
+    def __init__(self):
+        self._tiles = {}
+    def tile_at(self, coord):
+        key = tuple(coord)
+        if key not in self._tiles:
+            self._tiles[key] = _Tile(coord)
+        return self._tiles[key]
+    def get_scope(self, *a):
+        return [self.tile_at((0, 0))]
+    def get_around(self, *a):
+        return [(0, 0)]
+    def get_address_tiles(self, addr):
+        return [(0, 0)]
+    def update_obj(self, *a, **kw):
+        return None
+
+
+class _Timer:
+    def daily_duration(self, **kw):
+        return 0
+    def get_date(self, *a):
+        return "20250213-09:30:00"
+
+
 def _mk_agent(initial_tendency, window_size=15, status=None):
     """构造最小 Agent(注入假依赖,不触发 LLM)"""
-    class _Tile:
-        def __init__(self, coord=(0, 0)):
-            self.coord = list(coord)
-            self.events = []
-            self.address = ["the Ville", "测试区"]
-        def get_address(self, *a, **kw):
-            if kw.get("as_list"):
-                return list(self.address)
-            return ":".join(self.address)
-        def has_address(self, *a):
-            return False
-        def update_events(self, ev):
-            return False
-        def add_event(self, ev):
-            self.events.append(ev)
-        def remove_events(self, **kw):
-            self.events = []
-        def get_events(self):
-            return list(self.events)
-        def abstract(self):
-            return {"address": self.address}
-
-    class _Maze:
-        def __init__(self):
-            self._tiles = {}
-        def tile_at(self, coord):
-            key = tuple(coord)
-            if key not in self._tiles:
-                self._tiles[key] = _Tile(coord)
-            return self._tiles[key]
-        def get_scope(self, *a):
-            return [self.tile_at((0, 0))]
-        def get_around(self, *a):
-            return [(0, 0)]
-        def get_address_tiles(self, addr):
-            return [(0, 0)]
-        def update_obj(self, *a, **kw):
-            return None
-
-    class _Timer:
-        def daily_duration(self, **kw):
-            return 0
-        def get_date(self, *a):
-            return "20250213-09:30:00"
-
     cfg = {
         "name": "测试人",
         "currently": "x",
@@ -229,6 +232,83 @@ class TestV1ResumeLastAction:
         obs_before = agent._tendency_obs
         agent.observe_consequence("x")  # 与最后一条相同 → 不应立即采样
         assert agent._tendency_obs == obs_before  # 体验数不变
+
+
+class TestNoSleepCleanup:
+    """no_sleep 角色:旧存档残留的中文"空闲待命"(日程段 + 恢复的 action)
+    在 Agent 构造时清洗为英文——否则 resume 后凌晨/睡前段仍显示中文"""
+
+    def _mk_no_sleep_agent(self, with_action=None, daily_schedule=None):
+        cfg = {
+            "name": "测试人",
+            "currently": "x",
+            "coord": [0, 0],
+            "initial_tendency": {"A": 0.5, "B": 0.5},
+            "percept": {"att_bandwidth": 4},
+            "think": {"llm": {"provider": "mock"}, "tendency_window": 5},
+            "chat_iter": 0,
+            "spatial": {"address": {}, "tree": {}},
+            "schedule": {"daily_schedule": daily_schedule or []},
+            "associate": {"embedding": {"provider": "simple"}},
+            "scratch": {},
+            "storage_root": "",
+            "role_type": "user",
+            "no_sleep": True,
+        }
+        if with_action:
+            cfg["action"] = with_action
+        return Agent(cfg, _Maze(), {}, timer=_Timer())
+
+    def test_restored_action_chinese_idle_cleaned(self):
+        # resume 恢复的 action(存档里执行中的段)若为中文"空闲待命"应清洗为英文
+        action_cfg = {
+            "event": {
+                "subject": "测试人", "predicate": "此时",
+                "object": "空闲待命,保持在线,无用户咨询",
+                "describe": "空闲待命,保持在线,无用户咨询",
+                "address": ["the Ville"], "emoji": "空闲待命,保持在线,无用户咨询",
+            },
+            "obj_event": {
+                "subject": "Corridor", "predicate": "此时",
+                "object": "idle and waiting", "describe": "idle and waiting",
+                "address": ["the Ville"], "emoji": "",
+            },
+            "start": "20250213-00:00:00",
+            "duration": 60,
+        }
+        agent = self._mk_no_sleep_agent(with_action=action_cfg)
+        assert agent.action.event.object == "Idle standby, staying online, no user inquiries"
+        assert agent.action.event.emoji == "Idle standby, staying online, no user inquiries"
+        # obj_event 是英文,不应被误改
+        assert agent.action.obj_event.object == "idle and waiting"
+
+    def test_schedule_chinese_idle_cleaned(self):
+        # daily_schedule 中的中文"空闲待命"段在构造时清洗为英文
+        agent = self._mk_no_sleep_agent(daily_schedule=[
+            {"describe": "空闲待命,保持在线,无用户咨询", "decompose": []},
+            {"describe": "Go to sleep at 23:00", "decompose": []},
+            {"describe": "Walks to the market news station", "decompose": []},
+        ])
+        descs = [str(p.get("describe", "")) for p in agent.schedule.daily_schedule]
+        assert descs[0] == "Idle standby, staying online, no user inquiries"  # 中文待命→英文
+        assert descs[1] == "Idle standby, staying online, no user inquiries"  # sleep 段→英文
+        assert descs[2] == "Walks to the market news station"                 # 正常英文不动
+
+    def test_user_without_no_sleep_not_cleaned(self):
+        # 非 no_sleep 角色(user 但未配置)不应被清洗(保持人设作息)
+        cfg = {
+            "name": "测试人", "currently": "x", "coord": [0, 0],
+            "initial_tendency": {"A": 0.5, "B": 0.5},
+            "percept": {"att_bandwidth": 4},
+            "think": {"llm": {"provider": "mock"}, "tendency_window": 5},
+            "chat_iter": 0,
+            "spatial": {"address": {}, "tree": {}},
+            "schedule": {"daily_schedule": [{"describe": "空闲待命,保持在线,无用户咨询", "decompose": []}]},
+            "associate": {"embedding": {"provider": "simple"}},
+            "scratch": {}, "storage_root": "", "role_type": "user",
+        }
+        agent = Agent(cfg, _Maze(), {}, timer=_Timer())
+        assert agent.schedule.daily_schedule[0]["describe"] == "空闲待命,保持在线,无用户咨询"
 
 
 class TestV2WindowConstraintFiltering:

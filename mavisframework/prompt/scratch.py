@@ -156,13 +156,13 @@ class Scratch:
             return response
 
         failsafe = [
-            "早上6点起床并完成早餐的例行工作",
-            "早上7点吃早餐",
-            "早上8点看书",
-            "中午12点吃午饭",
-            "下午1点小睡一会儿",
-            "晚上7点放松一下，看电视",
-            "晚上11点睡觉",
+            "Wake up at 6 AM and complete the morning routine",
+            "Have breakfast at 7 AM",
+            "Read a book at 8 AM",
+            "Have lunch at noon",
+            "Take a short nap at 1 PM",
+            "Relax and watch TV at 7 PM",
+            "Go to sleep at 11 PM",
         ]
         return Result(prompt, _callback, failsafe, schedule_initResponse)
 
@@ -175,14 +175,14 @@ class Scratch:
         no_sleep = getattr(getattr(self, "agent", None), "no_sleep", False)
         if no_sleep and wake_up == 0:
             for i in range(9):
-                hourly_schedule += f"[{i}:00] 空闲待命,保持在线,无用户咨询\n"
+                hourly_schedule += f"[{i}:00] Idle standby, staying online, no user inquiries\n"
             for i in range(9, 24):
-                hourly_schedule += f"[{i}:00] <活动>\n"
+                hourly_schedule += f"[{i}:00] <activity>\n"
         else:
             for i in range(wake_up):
-                hourly_schedule += f"[{i}:00] 睡觉\n"
+                hourly_schedule += f"[{i}:00] sleeping\n"
             for i in range(wake_up, 24):
-                hourly_schedule += f"[{i}:00] <活动>\n"
+                hourly_schedule += f"[{i}:00] <activity>\n"
         prompt = self.build_prompt(
             "schedule_daily",
             {

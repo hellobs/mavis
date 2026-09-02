@@ -108,14 +108,18 @@ class Agent:
         # (全球时区场景:投资顾问分布在多个时区,模拟时间下需保持清醒)
         self.no_sleep: bool = bool(config.get("no_sleep", False)) or self.role_type == "ai_tool"
         # 全天在线角色:清洗续跑恢复的旧日程中残留的"睡觉"段
-        # (旧存档在 no_sleep 引入前生成,日程里仍有睡觉计划;新日程不会产生)
+        # (旧存档在 no_sleep 引入前生成,日程里仍有睡觉计划;新日程不会产生。
+        #  替换文本必须英文——睡前段(如 22:00)当天会被执行,中文会污染行动流。
+        #  兼容:早期版本把 sleep 段替换成了中文"空闲待命",旧存档里已固化,
+        #  此处一并清洗为英文,避免 resume 后行动描述仍中文)
         if self.no_sleep:
             for _plan in getattr(self.schedule, "daily_schedule", []) or []:
                 _desc = str(_plan.get("describe", "") or "")
-                if "睡" in _desc or "sleep" in _desc.lower():
-                    _plan["describe"] = "空闲待命,保持在线,无用户咨询"
+                if ("睡" in _desc or "sleep" in _desc.lower()
+                        or "空闲待命" in _desc):
+                    _plan["describe"] = "Idle standby, staying online, no user inquiries"
                     for _dp in _plan.get("decompose", []) or []:
-                        _dp["describe"] = "空闲待命,保持在线,无用户咨询"
+                        _dp["describe"] = "Idle standby, staying online, no user inquiries"
 
         # prompt
         from mavisframework.prompt import Scratch
@@ -189,6 +193,21 @@ class Agent:
         # action and events
         if "action" in config:
             self.action = Action.from_dict(config["action"])
+            # 全天在线角色:恢复的 action 若仍是旧中文"空闲待命"(早期存档固化),
+            # 替换为英文——否则 resume 后正执行的段(如凌晨/睡前)仍显示中文
+            if self.no_sleep:
+                for _ev in ("event", "obj_event"):
+                    _d = getattr(self.action, _ev, None)
+                    if _d is None:
+                        continue
+                    # Event 的描述存私有 _describe(describe 是构造参数非属性)
+                    for _attr, _f in (("_describe", "describe"), ("object", "object"), ("emoji", "emoji")):
+                        _txt = str(getattr(_d, _attr, "") or "")
+                        if "空闲待命" in _txt or "无用户咨询" in _txt:
+                            try:
+                                setattr(_d, _attr, "Idle standby, staying online, no user inquiries")
+                            except Exception:
+                                pass
             tiles = self.maze.get_address_tiles(self.get_event().address)
             config["coord"] = random.choice(list(tiles))
         else:

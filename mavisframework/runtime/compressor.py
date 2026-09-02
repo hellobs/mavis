@@ -71,7 +71,7 @@ class LiveCompressor:
         self.all_movement[key][agent_name] = {
             "location": location,
             "movement": coord,
-            "description": "正在睡觉",
+            "description": "Idle standby",
         }
         self.all_movement["description"][agent_name] = {
             "currently": json_data["currently"],

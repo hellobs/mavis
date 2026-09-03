@@ -113,7 +113,15 @@ class Associate:
     def abstract(self):
         des = {"nodes": self._index.nodes_num}
         for t in ["event", "chat", "thought"]:
-            des[t] = [self.find_concept(c).describe for c in self.memory[t]]
+            items = []
+            for c in self.memory[t]:
+                try:
+                    items.append(self.find_concept(c).describe)
+                except Exception:
+                    # 恢复(checkpoint)时记忆里可能引用了已被清理/缺失的节点,
+                    # 该字段仅用于摘要展示,跳过缺失项,避免 reset 日志使模拟崩溃
+                    continue
+            des[t] = items
         return des
 
     def cleanup_index(self):

@@ -180,6 +180,17 @@ class Agent:
             self._tendency_window[-1].get("action", "") if self._tendency_window else None
         )
         self._window_size = int(config.get("think", {}).get("tendency_window", 15))
+        # 窗口指数衰减系数(think.tendency_decay,缺省 0.8):权重 = decay^(n-1-i),
+        # 近期体验权重略高但不至于单条主导。0.5(旧值)使最近 1 条占 ~50%,
+        # 干预后 1-3 条新反馈即翻新窗口 → 收敛过快(0.5h 跳变,削弱"内化滞后"
+        # 叙事);0.8 下最近 1 条仅 ~20%,需 6-8 条新体验才主导 → 收敛渐进可见。
+        # 范围 (0,1),越接近 1 历史权重越均匀、收敛越慢。
+        try:
+            self._tendency_decay = float(config.get("think", {}).get("tendency_decay", 0.8))
+        except (TypeError, ValueError):
+            self._tendency_decay = 0.8
+        if not (0.0 < self._tendency_decay < 1.0):
+            self._tendency_decay = 0.8
         self._governance = None
         self._consequence_fn = None
         # status
@@ -292,6 +303,12 @@ class Agent:
         # 不重置为 None——否则 resume 首步误采样,破坏连续性
         self._last_window_action = getattr(self, "_last_window_action", None)
         self._window_size = int(getattr(self, "think_config", {}).get("tendency_window", 15))
+        try:
+            self._tendency_decay = float(getattr(self, "think_config", {}).get("tendency_decay", 0.8))
+        except (TypeError, ValueError):
+            self._tendency_decay = 0.8
+        if not (0.0 < self._tendency_decay < 1.0):
+            self._tendency_decay = 0.8
 
     def get_constraints(self) -> dict:
         """当前治理约束(期望目标权重)"""
@@ -377,7 +394,8 @@ class Agent:
         })
         if len(self._tendency_window) > self._window_size:
             self._tendency_window.pop(0)
-        # 加权平均(近期权重略高:指数衰减)
+        # 加权平均(近期权重略高:指数衰减,系数 think.tendency_decay 缺省 0.8
+        # ——旧 0.5 让最近 1 条占 ~50%,干预后收敛过快;0.8 需多条新体验才主导)
         n = len(self._tendency_window)
         goals = set()
         for w in self._tendency_window:
@@ -385,7 +403,8 @@ class Agent:
         tendency = {}
         for g in goals:
             vals = [w.get("feedback", w).get(g, 0.0) for w in self._tendency_window]
-            weights = [0.5 ** (n - 1 - i) for i in range(n)]  # 近期权重高
+            decay = getattr(self, "_tendency_decay", 0.8)
+            weights = [decay ** (n - 1 - i) for i in range(n)]  # 近期权重高
             wsum = sum(weights)
             tendency[g] = sum(v * wt for v, wt in zip(vals, weights)) / wsum
         # 人物底色惯性混合:起步=人设,体验接管,性格有残余(α 随累计体验衰减)

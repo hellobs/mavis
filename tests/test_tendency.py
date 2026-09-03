@@ -11,7 +11,7 @@ import pytest
 from mavisframework.core.agent_core import Agent
 
 
-def _mk_agent(initial_tendency, window_size=15):
+def _mk_agent(initial_tendency, window_size=15, decay=None):
     """构造最小 Agent(注入假依赖,不触发 LLM)"""
     import mavisframework.core.agent_core as ac
 
@@ -60,13 +60,16 @@ def _mk_agent(initial_tendency, window_size=15):
         def get_date(self, *a):
             return "20250213-09:30:00"
 
+    think_cfg = {"llm": {"provider": "mock"}, "tendency_window": window_size}
+    if decay is not None:
+        think_cfg["tendency_decay"] = decay
     cfg = {
         "name": "测试人",
         "currently": "x",
         "coord": [0, 0],
         "initial_tendency": initial_tendency,
         "percept": {"att_bandwidth": 4},
-        "think": {"llm": {"provider": "mock"}, "tendency_window": window_size},
+        "think": think_cfg,
         "chat_iter": 0,
         "spatial": {"address": {}, "tree": {}},
         "schedule": {},
@@ -161,3 +164,62 @@ class TestInitialTendency:
         # 周期性刷新(3 步一次)使体验累积,MR 应显著高于起点 0.5
         assert t["Maximize Returns"] > 0.6
         assert agent._tendency_obs >= 3  # 至少刷新了 3 次(而非只 1 次)
+
+
+class TestWindowDecay:
+    """窗口指数衰减系数(think.tendency_decay):控制"干预后收敛速度"。
+
+    旧 0.5:最近 1 条占 ~50%,干预后 1-3 条新反馈即主导窗口 → 0.5h 跳变;
+    新默认 0.8:单条权重 ~20%,需多条新体验才主导 → 收敛渐进可见(内化滞后叙事)。
+    """
+
+    def _drive(self, agent, feedback_fn, rounds=10):
+        agent.attach_governance(None, None)
+        agent._consequence_fn = feedback_fn
+        for i in range(rounds):
+            agent.observe_consequence(f"act-{i}")
+
+    def test_default_decay_is_08(self):
+        agent = _mk_agent({"A": 0.5, "B": 0.5})
+        assert agent._tendency_decay == pytest.approx(0.8)
+
+    def test_decay_parses_from_config(self):
+        agent = _mk_agent({"A": 0.5, "B": 0.5}, decay=0.95)
+        assert agent._tendency_decay == pytest.approx(0.95)
+        # 非法值回退默认
+        bad = _mk_agent({"A": 0.5, "B": 0.5}, decay=1.5)
+        assert bad._tendency_decay == pytest.approx(0.8)
+
+    def test_lower_decay_converges_faster(self):
+        # 干预后窗口被新反馈主导的速度:decay 越低单条新反馈权重越大 → 收敛越快
+        # 构造:窗口已满(旧反馈 A 主导),灌入 1 条新反馈(B),比较窗口均值偏移
+        def make(decay):
+            a = _mk_agent({"A": 0.5, "B": 0.5}, window_size=15, decay=decay)
+            a.attach_governance(None, None)
+            # 旧体验:A 强反馈
+            a._consequence_fn = lambda self, d: {"A": 0.9, "B": 0.1}
+            for i in range(15):
+                a.observe_consequence(f"old-{i}")
+            # 干预后新体验:B 强反馈(仅 1 条)
+            a._consequence_fn = lambda self, d: {"B": 0.9, "A": 0.1}
+            a.observe_consequence("new-after-intervention")
+            return a
+
+        fast = make(0.5)   # 旧行为
+        slow = make(0.8)   # 新默认
+        # 仅 1 条新反馈后,decay 越小 B 占比越高(收敛越快)
+        assert fast.value_tendency["B"] > slow.value_tendency["B"]
+        # 0.8 下 1 条新反馈不应已主导(B 仍低于多数情况)——验证"渐进"而非"跳变"
+        assert slow.value_tendency["B"] < 0.7
+
+    def test_more_new_feedback_eventually_dominates(self):
+        # 即便 decay=0.8,持续新反馈数条后 B 应主导(收敛最终完成,只是更渐进)
+        agent = _mk_agent({"A": 0.5, "B": 0.5}, window_size=15, decay=0.8)
+        agent.attach_governance(None, None)
+        agent._consequence_fn = lambda self, d: {"A": 0.9, "B": 0.1}
+        for i in range(15):
+            agent.observe_consequence(f"old-{i}")
+        agent._consequence_fn = lambda self, d: {"B": 0.9, "A": 0.1}
+        for i in range(10):
+            agent.observe_consequence(f"new-{i}")
+        assert agent.value_tendency["B"] > agent.value_tendency["A"]

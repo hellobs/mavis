@@ -6,6 +6,8 @@
 - observe_consequence 后:倾向 = α×底色 + (1−α)×体验窗口,α 随体验渐降
 - 起步=人设,体验累积后逐步向体验收敛,性格有残余(α 下限 0.1)
 """
+import datetime
+
 import pytest
 
 from mavisframework.core.agent_core import Agent
@@ -55,14 +57,29 @@ def _mk_agent(initial_tendency, window_size=15, decay=None):
             return None
 
     class _Timer:
+        """可变模拟时钟:get_date() 返回 datetime,支持 forward(分钟)推进"""
+
+        def __init__(self):
+            self._t = datetime.datetime(2025, 2, 13, 9, 30)
+
         def daily_duration(self, **kw):
             return 0
+
         def get_date(self, *a):
-            return "20250213-09:30:00"
+            if a:
+                return self._t.strftime(a[0])
+            return self._t
+
+        def forward(self, minutes):
+            self._t += datetime.timedelta(minutes=minutes)
+
+        def daily_time(self, duration):
+            base = self._t.replace(hour=0, minute=0, second=0, microsecond=0)
+            return base + datetime.timedelta(minutes=duration)
 
     think_cfg = {"llm": {"provider": "mock"}, "tendency_window": window_size}
     if decay is not None:
-        think_cfg["tendency_decay"] = decay
+        think_cfg["tendency_decay_per_hour"] = decay
     cfg = {
         "name": "测试人",
         "currently": "x",
@@ -167,59 +184,78 @@ class TestInitialTendency:
 
 
 class TestWindowDecay:
-    """窗口指数衰减系数(think.tendency_decay):控制"干预后收敛速度"。
+    """记忆近因性按"模拟时间"衰减(think.tendency_decay_per_hour, 缺省 0.6/小时)。
 
-    旧 0.5:最近 1 条占 ~50%,干预后 1-3 条新反馈即主导窗口 → 0.5h 跳变;
-    新默认 0.8:单条权重 ~20%,需多条新体验才主导 → 收敛渐进可见(内化滞后叙事)。
+    论文语义(Generative Agents recency):权重 = decay^age_hours,age = 当前模拟
+    时间 − 条目记录时间。与采样频率解耦——干预后新反馈再多,只要模拟时间没走够,
+    旧记忆仍有分量 → 收敛为小时级渐进(而非 0.5-2h 被密集新反馈翻新)。
     """
 
-    def _drive(self, agent, feedback_fn, rounds=10):
-        agent.attach_governance(None, None)
-        agent._consequence_fn = feedback_fn
-        for i in range(rounds):
-            agent.observe_consequence(f"act-{i}")
-
-    def test_default_decay_is_08(self):
-        agent = _mk_agent({"A": 0.5, "B": 0.5})
-        assert agent._tendency_decay == pytest.approx(0.8)
-
-    def test_decay_parses_from_config(self):
-        agent = _mk_agent({"A": 0.5, "B": 0.5}, decay=0.95)
-        assert agent._tendency_decay == pytest.approx(0.95)
-        # 非法值回退默认
-        bad = _mk_agent({"A": 0.5, "B": 0.5}, decay=1.5)
-        assert bad._tendency_decay == pytest.approx(0.8)
-
-    def test_lower_decay_converges_faster(self):
-        # 干预后窗口被新反馈主导的速度:decay 越低单条新反馈权重越大 → 收敛越快
-        # 构造:窗口已满(旧反馈 A 主导),灌入 1 条新反馈(B),比较窗口均值偏移
-        def make(decay):
-            a = _mk_agent({"A": 0.5, "B": 0.5}, window_size=15, decay=decay)
-            a.attach_governance(None, None)
-            # 旧体验:A 强反馈
-            a._consequence_fn = lambda self, d: {"A": 0.9, "B": 0.1}
-            for i in range(15):
-                a.observe_consequence(f"old-{i}")
-            # 干预后新体验:B 强反馈(仅 1 条)
-            a._consequence_fn = lambda self, d: {"B": 0.9, "A": 0.1}
-            a.observe_consequence("new-after-intervention")
-            return a
-
-        fast = make(0.5)   # 旧行为
-        slow = make(0.8)   # 新默认
-        # 仅 1 条新反馈后,decay 越小 B 占比越高(收敛越快)
-        assert fast.value_tendency["B"] > slow.value_tendency["B"]
-        # 0.8 下 1 条新反馈不应已主导(B 仍低于多数情况)——验证"渐进"而非"跳变"
-        assert slow.value_tendency["B"] < 0.7
-
-    def test_more_new_feedback_eventually_dominates(self):
-        # 即便 decay=0.8,持续新反馈数条后 B 应主导(收敛最终完成,只是更渐进)
-        agent = _mk_agent({"A": 0.5, "B": 0.5}, window_size=15, decay=0.8)
+    def _fill_old(self, agent, rounds):
+        """以 A 强反馈灌满窗口;每次 observe 推进 2 分钟模拟时间"""
         agent.attach_governance(None, None)
         agent._consequence_fn = lambda self, d: {"A": 0.9, "B": 0.1}
-        for i in range(15):
+        for i in range(rounds):
+            agent._timer.forward(2)  # 模拟 2 分钟一步
             agent.observe_consequence(f"old-{i}")
-        agent._consequence_fn = lambda self, d: {"B": 0.9, "A": 0.1}
-        for i in range(10):
-            agent.observe_consequence(f"new-{i}")
-        assert agent.value_tendency["B"] > agent.value_tendency["A"]
+
+    def test_default_decay_per_hour_is_06(self):
+        agent = _mk_agent({"A": 0.5, "B": 0.5})
+        assert agent._tendency_decay_per_hour == pytest.approx(0.6)
+
+    def test_decay_parses_from_config(self):
+        agent = _mk_agent({"A": 0.5, "B": 0.5}, decay=0.9)
+        assert agent._tendency_decay_per_hour == pytest.approx(0.9)
+        # 非法值回退默认
+        bad = _mk_agent({"A": 0.5, "B": 0.5}, decay=1.5)
+        assert bad._tendency_decay_per_hour == pytest.approx(0.6)
+
+    def test_one_new_feedback_after_hour_still_not_dominant(self):
+        # 干预后仅推进 1 模拟小时、灌 1 条新反馈(B):旧记忆(0.6^1=0.6)仍有分量,
+        # B 不应主导(对比早期"按条数"方案:1 条新即可大幅偏移)
+        a = _mk_agent({"A": 0.5, "B": 0.5}, window_size=15)
+        self._fill_old(a, 15)
+        a._timer.forward(60)  # 干预后过 1 模拟小时
+        a._consequence_fn = lambda self, d: {"B": 0.9, "A": 0.1}
+        a.observe_consequence("new-after-intervention")
+        t = a.value_tendency
+        # A(旧记忆)仍占主导:收敛是渐进的
+        assert t["A"] > 0.6, "1h 后仅 1 条新反馈不应让倾向翻向 B,实际 A={}".format(round(t["A"], 3))
+
+    def test_convergence_takes_hours(self):
+        # 干预后持续 B 反馈,但每步仅 2 分钟:3 模拟小时内 B 不应完全主导;
+        # 推进足够时间(模拟 ~6h)后 B 才明显占优 → 收敛是小时级
+        a = _mk_agent({"A": 0.5, "B": 0.5}, window_size=15)
+        self._fill_old(a, 15)
+        a._consequence_fn = lambda self, d: {"B": 0.9, "A": 0.1}
+        # 3 模拟小时(90 步 × 2min),间隔采样(每 30 步观察一次)
+        for i in range(90):
+            a._timer.forward(2)
+            if i % 30 == 29:
+                a.observe_consequence(f"new-{i}")
+        t3h = a.value_tendency["B"]
+        assert t3h < 0.8, "3h 不应完全收敛到位,B={}".format(round(t3h, 3))
+        # 再推 6h(共 ~9h),B 应接近主导
+        for i in range(180):
+            a._timer.forward(2)
+            if i % 30 == 29:
+                a.observe_consequence(f"new2-{i}")
+        t9h = a.value_tendency["B"]
+        assert t9h > t3h + 0.05, "时间推进后应继续向新约束收敛:3h={} 9h={}".format(
+            round(t3h, 3), round(t9h, 3))
+
+    def test_decay_lower_means_slower(self):
+        # decay 越低(0.4)旧记忆衰减越快 → 同样时间跨度内收敛更快;
+        # 验证衰减系数单调影响收敛速度
+        def run(decay):
+            a = _mk_agent({"A": 0.5, "B": 0.5}, window_size=15, decay=decay)
+            self._fill_old(a, 15)
+            a._consequence_fn = lambda self, d: {"B": 0.9, "A": 0.1}
+            a._timer.forward(120)  # 干预后 2 模拟小时
+            a.observe_consequence("post")
+            return a.value_tendency["B"]
+
+        b04 = run(0.4)  # 衰减快 → 旧记忆弱 → B 高
+        b06 = run(0.6)
+        b08 = run(0.8)  # 衰减慢 → 旧记忆强 → B 低
+        assert b04 > b06 > b08, "decay 越低收敛越快:{:.3f} {:.3f} {:.3f}".format(b04, b06, b08)

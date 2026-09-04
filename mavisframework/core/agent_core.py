@@ -180,17 +180,23 @@ class Agent:
             self._tendency_window[-1].get("action", "") if self._tendency_window else None
         )
         self._window_size = int(config.get("think", {}).get("tendency_window", 15))
-        # 窗口指数衰减系数(think.tendency_decay,缺省 0.8):权重 = decay^(n-1-i),
-        # 近期体验权重略高但不至于单条主导。0.5(旧值)使最近 1 条占 ~50%,
-        # 干预后 1-3 条新反馈即翻新窗口 → 收敛过快(0.5h 跳变,削弱"内化滞后"
-        # 叙事);0.8 下最近 1 条仅 ~20%,需 6-8 条新体验才主导 → 收敛渐进可见。
-        # 范围 (0,1),越接近 1 历史权重越均匀、收敛越慢。
+        # 记忆近因性衰减(think.tendency_decay_per_hour,缺省 0.6/模拟小时):
+        # 权重 = decay_per_hour^age_hours —— 与 Generative Agents 论文的
+        # recency 语义一致(检索打分含 0.99^小时,旧记忆长时间保留),衰减以
+        # 模拟时间为尺,与采样频率解耦。早前实现按"条目序号"衰减(0.8^条):
+        # 采样密集时(干预后 AI 频繁行动)窗口 1-2 模拟小时即被新反馈翻新,
+        # 收敛过快,削弱"内化滞后"叙事(0.5h 跳变)。
+        # 0.6/小时 → 半衰 ≈1.4h:干预前旧反馈随真实模拟时间流逝持续衰减,
+        # 干预后约 3-5 模拟小时渐进爬升至新约束(小时级收敛,可见内化过程)。
+        # 语义:age 小时数 = 当前模拟时间 − 条目记录时间(tendency_window 的
+        # time 字段)。范围 (0,1),越接近 1 旧记忆保留越久、收敛越慢。
         try:
-            self._tendency_decay = float(config.get("think", {}).get("tendency_decay", 0.8))
+            self._tendency_decay_per_hour = float(
+                config.get("think", {}).get("tendency_decay_per_hour", 0.6))
         except (TypeError, ValueError):
-            self._tendency_decay = 0.8
-        if not (0.0 < self._tendency_decay < 1.0):
-            self._tendency_decay = 0.8
+            self._tendency_decay_per_hour = 0.6
+        if not (0.0 < self._tendency_decay_per_hour < 1.0):
+            self._tendency_decay_per_hour = 0.6
         self._governance = None
         self._consequence_fn = None
         # status
@@ -304,11 +310,12 @@ class Agent:
         self._last_window_action = getattr(self, "_last_window_action", None)
         self._window_size = int(getattr(self, "think_config", {}).get("tendency_window", 15))
         try:
-            self._tendency_decay = float(getattr(self, "think_config", {}).get("tendency_decay", 0.8))
+            self._tendency_decay_per_hour = float(
+                getattr(self, "think_config", {}).get("tendency_decay_per_hour", 0.6))
         except (TypeError, ValueError):
-            self._tendency_decay = 0.8
-        if not (0.0 < self._tendency_decay < 1.0):
-            self._tendency_decay = 0.8
+            self._tendency_decay_per_hour = 0.6
+        if not (0.0 < self._tendency_decay_per_hour < 1.0):
+            self._tendency_decay_per_hour = 0.6
 
     def get_constraints(self) -> dict:
         """当前治理约束(期望目标权重)"""
@@ -394,18 +401,43 @@ class Agent:
         })
         if len(self._tendency_window) > self._window_size:
             self._tendency_window.pop(0)
-        # 加权平均(近期权重略高:指数衰减,系数 think.tendency_decay 缺省 0.8
-        # ——旧 0.5 让最近 1 条占 ~50%,干预后收敛过快;0.8 需多条新体验才主导)
+        # 加权平均——记忆近因性按"模拟时间"衰减(论文 recency 语义):
+        #   权重 = decay_per_hour ^ age_hours
+        #   age_hours = 当前模拟时间 − 条目记录的模拟时间(time 字段)
+        # 与采样频率解耦:干预后新反馈再多,只要模拟时间没走够,旧记忆仍
+        # 有分量 → 收敛是小时级渐进(而非 1-2h 内被密集新反馈翻新)。
         n = len(self._tendency_window)
+        decay_ph = getattr(self, "_tendency_decay_per_hour", 0.6)
+        # 当前模拟时间(绝对时间,用于跨天 age 计算)
+        _now = None
+        try:
+            _now = self._timer.get_date()
+        except Exception:
+            _now = None
+        # 各条目的 age 小时数(无 time 的旧条目:按窗口内位置估算年龄,
+        # 最旧条目默认窗口跨度(如 15 条 × 平均 10min ≈ 2.5h),不精确但单调)
+        ages = []
+        for i, w in enumerate(self._tendency_window):
+            t_str = str(w.get("time", "") or "")
+            if t_str and _now is not None:
+                try:
+                    import datetime as _dt
+                    t_entry = _dt.datetime.strptime(t_str, "%Y%m%d-%H:%M")
+                    age_h = max(0.0, (_now - t_entry).total_seconds() / 3600.0)
+                    ages.append(age_h)
+                    continue
+                except (ValueError, TypeError):
+                    pass
+            # 无 time/解析失败:按位置估算(越旧 age 越大),避免该条目权重异常高
+            ages.append(float(n - i) * 0.25)  # 每 15min 一条的粗糙估计
+        weights = [decay_ph ** a for a in ages]
         goals = set()
         for w in self._tendency_window:
             goals.update(w.get("feedback", w).keys())
         tendency = {}
         for g in goals:
             vals = [w.get("feedback", w).get(g, 0.0) for w in self._tendency_window]
-            decay = getattr(self, "_tendency_decay", 0.8)
-            weights = [decay ** (n - 1 - i) for i in range(n)]  # 近期权重高
-            wsum = sum(weights)
+            wsum = sum(weights) or 1.0
             tendency[g] = sum(v * wt for v, wt in zip(vals, weights)) / wsum
         # 人物底色惯性混合:起步=人设,体验接管,性格有残余(α 随累计体验衰减)
         # 自适应过渡期:α 的衰减分母 = 体验记忆窗口容量(self._window_size,

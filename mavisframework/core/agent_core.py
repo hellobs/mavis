@@ -89,6 +89,11 @@ class Agent:
         self.chat_cooldown_min = int(config.get("chat_cooldown_min", 20))
         self.chat_retry_prob = float(config.get("chat_retry_prob", 0.5))
 
+        # 角色指令(可选,由外部环境提供):非空时进入提示词,为空时行为不变
+        self.role_directive: str = str(config.get("role_directive", "") or "").strip()
+        # 步级外部状态(可选,由外部环境每步注入):非空时进入提示词,不写入记忆
+        self._step_context: dict = {}
+
         # memory
         self.spatial = Spatial(**config["spatial"])
         self.schedule = Schedule(**config["schedule"])
@@ -199,6 +204,17 @@ class Agent:
             self._tendency_decay_per_hour = 0.6
         self._governance = None
         self._consequence_fn = None
+        # Location 转移(TongMu:尽可能让场景中人物移动)
+        # 每次 agent 做 action 时累计一个"转移到其他 Location"的概率,触发后把
+        # 该 action 的目标地址重定向到另一个区域的随机叶子,角色真实穿过地图走过去。
+        # 转移配置(agent config["transfer"]):
+        #   enabled(默认 True) / base(累计起点) / increment(每次 action 增量) / max(上限)
+        _tr_cfg = config.get("transfer", {}) or {}
+        self._transfer_enabled = bool(_tr_cfg.get("enabled", True))
+        self._transfer_base = float(_tr_cfg.get("base", 0.0))
+        self._transfer_increment = float(_tr_cfg.get("increment", 0.12))
+        self._transfer_max = float(_tr_cfg.get("max", 0.85))
+        self._transfer_prob = self._transfer_base
         # status
         status = {"poignancy": 0}
         self.status = self._update_dict(status, _saved_status)
@@ -343,6 +359,27 @@ class Agent:
             return scorer.alignment(action, goals)
         except Exception:
             return {}
+
+    def set_step_context(self, context: dict = None):
+        """设置本步的外部状态(由外部环境注入,可选)。
+
+        调用方:外部驱动层每步调用一次。空 dict/None 表示清除。
+        仅影响提示词中的"当前处境"块,不写入联想记忆。
+        """
+        self._step_context = dict(context or {})
+
+    def step_context(self) -> dict:
+        """返回本步外部状态的副本(无则空 dict)。"""
+        return dict(getattr(self, "_step_context", {}) or {})
+
+    def request_interaction(self, other, focus: str = "") -> bool:
+        """请求与另一角色进行一次交互(由外部环境发起,可选)。
+
+        与角色自发的 _reaction 路径共用同一实现;跳过冷却与"是否想聊"
+        的概率门,其余前置条件(清醒、未在移动、不在对话中等)仍然生效。
+        返回是否真正产生了这次交互。
+        """
+        return bool(self._chat_with(other, focus, forced=True))
 
     def observe_consequence(self, action_desc: str):
         """后果反馈 → 更新倾向(滑动窗口,按行动变化点采样)
@@ -869,6 +906,11 @@ class Agent:
                 self._action_cache.clear()
             self._action_cache[cache_key] = address
 
+        # Location 转移:每次做 action 增大转移到其他 Location 的概率
+        # (触发则重定向目标地址到另一区域,find_path 会算出跨场景路径 → 角色真实移动)
+        if self._transfer_enabled:
+            address = self._maybe_transfer(address)
+
         # 价值反馈观测:计算行动对各目标的语义对齐度(不干预行为)
         # IVD 重构:约束是期望,不直接指挥 AI;这里只"观测+记录",
         # 供后果反馈(consequence)与倾向内化(value_tendency)使用。
@@ -950,6 +992,35 @@ class Agent:
             kwargs["address"].append(self.completion("determine_object", **kwargs))
         return kwargs["address"]
 
+    def _maybe_transfer(self, address):
+        """每次做 action 增大转移到其他 Location 的概率;触发后重置累积并重定向。
+
+        increment 上限钳制(不无限逼近 1):保证触发是"经常但不必然"。
+        重定向只影响本次 action 的目标地址,find_path 据此算出跨场景路径。
+        """
+        self._transfer_prob = min(
+            self._transfer_prob + self._transfer_increment, self._transfer_max)
+        if random.random() >= self._transfer_prob:
+            return address
+        new_addr = self._pick_other_location(address)
+        if not new_addr:
+            self._transfer_prob = self._transfer_base
+            return address
+        self._transfer_prob = self._transfer_base
+        self.logger.info(
+            "{} 转移到另一个 Location → {}".format(
+                self.name, ":".join(new_addr)))
+        return new_addr
+
+    def _pick_other_location(self, cur_addr):
+        """选一个与当前顶层区域(Location)不同的随机地址(叶子)。"""
+        cur_root = cur_addr[0] if cur_addr else None
+        for _ in range(12):
+            cand = self.spatial.random_address()
+            if cand and cand[0] != cur_root:
+                return cand
+        return None
+
     def _reaction(self, agents=None, ignore_words=None):
         focus = None
         ignore_words = ignore_words or ["空闲"]
@@ -992,7 +1063,7 @@ class Agent:
             return True
         return False
 
-    def _chat_with(self, other, focus):
+    def _chat_with(self, other, focus, forced: bool = False):
         # 全局并发槽位:限制同时进行的对话场次(防对话风暴)
         global _active_chat_slots
         with _chat_slots_lock:
@@ -1004,14 +1075,14 @@ class Agent:
             if not _acquire_chat_pair(self.name, other.name):
                 return False
             try:
-                return self._chat_with_locked(other, focus)
+                return self._chat_with_locked(other, focus, forced=forced)
             finally:
                 _release_chat_pair(self.name, other.name)
         finally:
             with _chat_slots_lock:
                 _active_chat_slots -= 1
 
-    def _chat_with_locked(self, other, focus):
+    def _chat_with_locked(self, other, focus, forced: bool = False):
         if len(self.schedule.daily_schedule) < 1 or len(other.schedule.daily_schedule) < 1:
             # initializing
             return False
@@ -1030,10 +1101,10 @@ class Agent:
                     self.name, other.name, delta, chats[0]
                 )
             )
-            if delta < self.chat_cooldown_min:
+            if not forced and delta < self.chat_cooldown_min:
                 return False
 
-        if not self.completion("decide_chat", self, other, focus, chats):
+        if not forced and not self.completion("decide_chat", self, other, focus, chats):
             # 提高对话频率:即使 LLM 不倾向,也有一定概率继续尝试(可配置)
             # AI 工具角色(自己或对方)概率更高,鼓励与人交流
             retry_prob = self.chat_retry_prob

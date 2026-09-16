@@ -28,6 +28,8 @@ class Simulator:
         roles: Optional[Dict[str, str]] = None,   # 角色名 -> 职位(决策导出用)
         story: Optional[List[dict]] = None,       # 剧情事件( story.json 注入)
         stride: int = 2,
+        external_state: Optional[Callable] = None,       # 步级状态:(name, step, sim_time, game) -> dict
+        interaction_request: Optional[Callable] = None,  # 交互请求:(step, sim_time, game) -> [{"from","to","focus"}]
     ):
         self.on_agent = on_agent
         self.on_step = on_step
@@ -41,6 +43,58 @@ class Simulator:
         self.roles = roles or {}
         self.story = story or []
         self.stride = stride
+        # 外部注入钩子(可选,默认为 None = 行为与之前完全一致)
+        self.external_state = external_state
+        self.interaction_request = interaction_request
+        # 交互请求执行记录(审计用)
+        self.interactions: List[dict] = []
+
+    # ------------------------------------------------------------------
+    def _apply_injection_hooks(self, game, config, step_no: int, sim_time: str):
+        """执行外部注入钩子(步级状态分发 + 交互请求)。
+
+        external_state     : fn(name, step, sim_time, game) -> dict
+        interaction_request: fn(step, sim_time, game) -> [{"from","to","focus"}]
+
+        两者都只在被显式提供时调用;异常被记录并降级为"本步不注入",
+        不影响模拟继续。
+        """
+        if self.external_state is not None:
+            for name in list(config.get("agents", {}).keys()):
+                if name not in game.agents:
+                    continue
+                try:
+                    state = self.external_state(name, step_no, sim_time, game)
+                except Exception as e:
+                    game.logger.warning(
+                        "external_state failed for {}: {}".format(name, e))
+                    state = None
+                game.get_agent(name).set_step_context(state or {})
+
+        if self.interaction_request is not None:
+            try:
+                requests = self.interaction_request(step_no, sim_time, game) or []
+            except Exception as e:
+                game.logger.warning("interaction_request failed: {}".format(e))
+                requests = []
+            for req in requests:
+                src, dst = req.get("from"), req.get("to")
+                focus = req.get("focus", "")
+                record = {
+                    "step": step_no, "time": sim_time,
+                    "from": src, "to": dst, "focus": focus, "started": False,
+                }
+                if src in game.agents and dst in game.agents:
+                    try:
+                        record["started"] = game.get_agent(src).request_interaction(
+                            game.get_agent(dst), focus)
+                    except Exception as e:
+                        game.logger.warning(
+                            "interaction {} -> {} failed: {}".format(src, dst, e))
+                else:
+                    game.logger.warning(
+                        "interaction skipped, unknown agent: {} -> {}".format(src, dst))
+                self.interactions.append(record)
 
     # ------------------------------------------------------------------
     # 条件触发检查器注册表:condition.type -> 检查函数(game, ev) -> bool
@@ -143,6 +197,10 @@ class Simulator:
 
             # 剧情调度:到点的 story 事件注入目标角色记忆
             self._inject_story(game, config)
+
+            # 外部注入钩子(可选):步级状态分发 + 交互请求执行
+            if self.external_state is not None or self.interaction_request is not None:
+                self._apply_injection_hooks(game, config, i + 1, sim_time)
 
             # 并行思考所有 Agent(对话通过 agent 内互斥锁保证同一时刻一场)
             with ThreadPoolExecutor(max_workers=max(1, self.max_workers)) as executor:

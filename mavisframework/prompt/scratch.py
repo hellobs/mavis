@@ -47,8 +47,33 @@ class Scratch:
         parts = [f"{k}: {round(v, 2)}" for k, v in tendency.items()]
         return ", ".join(parts)
 
+    def _environment_blocks(self) -> str:
+        """外部环境注入的可选片段:角色指令 + 当前处境(步级状态)。
+
+        两者均为空时返回空串,保证默认输出与之前逐字一致;
+        仅进入提示词,不写入记忆。
+        """
+        agent = getattr(self, "agent", None)
+        if agent is None:
+            return ""
+        blocks = []
+        directive = str(getattr(agent, "role_directive", "") or "").strip()
+        if directive:
+            blocks.append(
+                "Role instruction (provided by the environment):\n{}".format(directive)
+            )
+        context = getattr(agent, "_step_context", None) or {}
+        if context:
+            lines = ["{}: {}".format(k, v) for k, v in context.items()]
+            blocks.append(
+                "Current situation (provided by the environment):\n" + "\n".join(lines)
+            )
+        if not blocks:
+            return ""
+        return "\n\n" + "\n\n".join(blocks)
+
     def _base_desc(self):
-        return self.build_prompt(
+        base = self.build_prompt(
             "base_desc",
             {
                 "name": self.name,
@@ -62,6 +87,7 @@ class Scratch:
                 "currently": self.currently,
             }
         )
+        return base + self._environment_blocks()
 
     def _relation_desc(self, agent, other_name):
         """从 agent 的 relationships 配置中,提取本角色与 other 的关系描述"""

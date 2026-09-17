@@ -1,4 +1,4 @@
-"""config_tool.app — MAVIS 角色配置生成工具(独立服务,端口 5002)
+"""config_tool.app — MAVIS 角色配置生成工具(独立服务,端口 8060)
 
 业务方通过网页表单填写角色/职责/权限/目标/关系/剧情,
 工具按 MAVIS 的 Schema 生成 agent.json / relationships.json / story.json,
@@ -623,4 +623,4 @@ async def export_configs():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=5002, log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=8060, log_level="info")

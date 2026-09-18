@@ -9,9 +9,17 @@ mavis 只认识三件事:插件可选实现的三个方法、一份"事件字典
 2. **零业务词汇**:本文件不出现任何接入方业务词。
 3. **故障隔离**:单个插件抛异常只记 warning,不打断其它插件,也不打断主循环。
 
-事件字典复用 mavisframework.runtime.protocol 的键名。框架原生产生的协议事件是
-agent / time / chat_line / story;init 与 snapshot 由消费方(如可视化层)自行构造,
-框架不产生,故框架总线不广播这两种。
+事件字典并非全部复用 protocol,分两类:`time` / `chat_line` / `story` 的键名与
+mavisframework.runtime.protocol 一致;`agent` 事件是**框架原生子集**,字段为
+`name` / `coord` / `path` / `time`,外加一个原始 `state`(即 `config["agents"][name]`
+的原样引用,内含 action / location / currently 等),协议顶层要求的 `action`(字符串)
+等字段由消费方自行映射,框架不在总线上做协议级转换(否则等于把可视化侧的
+as_text 那套复制进框架,违反"不复制实现")。init 与 snapshot 由消费方
+(如可视化层)自行构造,框架不产生,故框架总线不广播这两种。
+
+事件内容只读:总线上的事件 dict 与 on_* 回调、`config["agents"]` 可能共用同一引用,
+framework 在后续步骤会继续改动其中的 dict。插件可读、不要原地修改,也不要长期持有
+当作稳定快照。
 
 生命周期:setup 在插件挂进运行上下文时调一次(默认惰性,在 Simulator 首次 simulate 时),
 teardown 由挂载方在运行收尾时显式触发。

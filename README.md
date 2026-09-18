@@ -29,9 +29,11 @@ Chinese versions in the [docs/ directory](docs/).
 
 mavisframework carries no business logic; integrators plug in through a small, stable set of
 points — `load_config(...)`, `Game(..., timer=, governance=)`, `Simulator(..., external_state=,
-interaction_request=, on_agent=, on_step=, on_story=)`, `Simulator.register_condition(...)`,
-per-role fields such as `role_directive` / `think.llm`, public `Agent` methods, and the
-process-wide `agent_core.chat_callback`.
+interaction_request=, on_agent=, on_step=, on_story=, plugins=)`, `Simulator.register_condition(...)`,
+per-role fields such as `role_directive` / `think.llm`, public `Agent` methods, the
+process-wide `agent_core.chat_callback` (the old direct assignment still works; a new
+`subscribe_chat_line` supports multiple consumers), and the generic plugin surface
+`Plugin` / `PluginManager` discovered via the entry-point group `mavisframework.plugins`.
 
 Two rules keep the framework usable for everyone:
 

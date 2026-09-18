@@ -24,9 +24,11 @@
 
 mavisframework 自身不装业务逻辑,接入方通过一小撮稳定的点接进来:
 `load_config(...)`、`Game(..., timer=, governance=)`、
-`Simulator(..., external_state=, interaction_request=, on_agent=, on_step=, on_story=)`、
+`Simulator(..., external_state=, interaction_request=, on_agent=, on_step=, on_story=, plugins=)`、
 `Simulator.register_condition(...)`、角色字段 `role_directive` / `think.llm`、
-`Agent` 的公开方法,以及进程级 `agent_core.chat_callback`。
+`Agent` 的公开方法、进程级 `agent_core.chat_callback`(老写法直接赋值仍有效;
+新增 `subscribe_chat_line` 支持多订阅者),以及通用插件面
+`Plugin` / `PluginManager`(通过入口点组 `mavisframework.plugins` 发现)。
 
 两条硬约定保证框架对所有人可用:
 

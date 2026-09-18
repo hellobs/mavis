@@ -157,6 +157,16 @@ sim.plugin_teardown()   # 显式收尾(on_event 后插件立刻收到 agent/time
 `teardown` 由调用方显式触发。故障隔离:单个插件在 `setup` / `on_event` / `teardown`
 抛异常只记 warning,不打断其它插件,也不打断主循环。
 
+**事件边界与只读约定**:插件总线上 `time` / `chat_line` / `story` 三种事件的键名与
+`mavisframework.runtime.protocol` 一致。`agent` 事件是**框架原生子集**,字段为
+`name` / `coord` / `path` / `time`,外加一个原始 `state`(= 该角色 `config["agents"]`
+里的原样引用,内含 `action` / `location` / `currently` 等);协议顶层要求的
+`action`(字符串)等字段由消费方自行映射(`mavis-vizkit.events.as_text()` 就是这种
+映射),框架不在总线上做协议级转换——否则等于把可视化侧的收敛逻辑复制进框架,
+违反"不复制实现"。另外,总线上的事件 dict 与 `on_*` 回调、`config["agents"]` 可能
+共用同一引用,framework 在后续步骤会继续改动其中的 dict;插件应**只读**事件、不要
+原地修改,也不要长期持有当作稳定快照。
+
 ## 三、新增能力的两条硬约定
 
 1. **默认关闭**:新增的可选能力一律默认不生效(参数默认 `None`、开关默认 `False`、

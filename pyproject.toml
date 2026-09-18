@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mavisframework"
-version = "1.1.0"
+version = "1.2.0"
 description = "MAVIS 生成式多智能体仿真框架(自研,零外部 AI 依赖)"
 readme = "README.md"
 requires-python = ">=3.12"

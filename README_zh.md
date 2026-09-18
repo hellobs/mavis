@@ -51,11 +51,11 @@ pip install -e .
 
 # 或构建 wheel 后安装(发布期/冻结版本)
 pip install .                          # 直接装源码
-python -m build && pip install dist/mavisframework-1.1.0-py3-none-any.whl
+python -m build && pip install dist/mavisframework-1.2.0-py3-none-any.whl
 
 # uv 亦可(可选,工具链自选)
 # uv pip install -e .
-# uv build && uv pip install dist/mavisframework-1.1.0-py3-none-any.whl
+# uv build && uv pip install dist/mavisframework-1.2.0-py3-none-any.whl
 ```
 
 运行依赖仅 `pydantic>=2.0` 与 `requests>=2.31`,无 AI 或渲染框架的硬依赖。

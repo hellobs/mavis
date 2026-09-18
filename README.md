@@ -21,8 +21,30 @@ Learn mavisframework from scratch (with runnable examples):
 | [Runtime: Game & Simulator](docs/tutorial-game-en.md) | create agents, plug in LLM, run a step |
 | [Message Protocol](docs/tutorial-protocol-en.md) | agent/time/chat_line contract, validate_message |
 | [Decision Export](docs/tutorial-decisions-en.md) | simulation → decision event stream (for governance) |
+| [Extension Surface](docs/tutorial-extension-en.md) | the stable API integrators may rely on; defaults, limits, what to do when a new need appears |
 
 Chinese versions in the [docs/ directory](docs/).
+
+## 📌 Extension surface (the contract with integrators)
+
+mavisframework carries no business logic; integrators plug in through a small, stable set of
+points — `load_config(...)`, `Game(..., timer=, governance=)`, `Simulator(..., external_state=,
+interaction_request=, on_agent=, on_step=, on_story=)`, `Simulator.register_condition(...)`,
+per-role fields such as `role_directive` / `think.llm`, public `Agent` methods, and the
+process-wide `agent_core.chat_callback`.
+
+Two rules keep the framework usable for everyone:
+
+1. **Off by default** — optional additions default to `None` / `False` / `""`; without
+   configuration the behaviour is byte-identical to before.
+2. **No business vocabulary** in the framework source — no case01, no role names, no company
+   names. Generic demo vocabulary is fine.
+
+Both are enforced by [`tests/test_extension_surface.py`](tests/test_extension_surface.py),
+which also pins signatures and defaults. Read
+[Extension Surface](docs/tutorial-extension-en.md) before adding a capability; if a need can
+be met by configuration, by an existing extension point, or inside the integrator itself,
+do that instead of changing the framework.
 
 ## 1. Installation
 

@@ -16,8 +16,27 @@
 | [运行时:Game 与 Simulator](docs/tutorial-game.md) | 创建角色、接入 LLM、跑一步模拟 |
 | [消息协议](docs/tutorial-protocol.md) | agent/time/chat_line 等契约、validate_message |
 | [决策导出](docs/tutorial-decisions.md) | 模拟结果 → 决策事件流(供治理平台) |
+| [扩展面](docs/tutorial-extension.md) | 接入方可以依赖的稳定 API;默认值、已知限制、遇到新需求按什么顺序办 |
 
 英文版见 [docs/ 目录](docs/)(`*-en.md`)。
+
+## 📌 扩展面(与接入方的合同)
+
+mavisframework 自身不装业务逻辑,接入方通过一小撮稳定的点接进来:
+`load_config(...)`、`Game(..., timer=, governance=)`、
+`Simulator(..., external_state=, interaction_request=, on_agent=, on_step=, on_story=)`、
+`Simulator.register_condition(...)`、角色字段 `role_directive` / `think.llm`、
+`Agent` 的公开方法,以及进程级 `agent_core.chat_callback`。
+
+两条硬约定保证框架对所有人可用:
+
+1. **默认关闭**:新增的可选能力参数默认 `None` / `False` / 空串;不配置时行为与历史版本逐位一致。
+2. **源码零业务词汇**:不出现 case01、角色名、公司名等;通用演示词汇不算越界。
+
+两条都由 [`tests/test_extension_surface.py`](tests/test_extension_surface.py) 兜底,
+该文件同时锁住签名与默认值。加新能力之前先读
+[扩展面](docs/tutorial-extension.md):能用配置解决、能用既有扩展点解决、
+或能在接入方自己那边解决的,就不要动框架。
 
 ## 1. 安装
 

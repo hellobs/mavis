@@ -16,7 +16,8 @@ mavisframework 本身不装任何业务逻辑:角色、场景、剧情、外部�
 容器层:`Game(...)`。
 调度层:`Simulator(...)` 与 `Simulator.register_condition(...)`。
 角色层:`Agent` 的公开方法与三个可选字段。
-进程级:`mavisframework.core.agent_core.chat_callback`。
+进程级:`mavisframework.core.agent_core.chat_callback`(`chat_line` 逐句,支持多订阅)。
+插件层:`mavisframework.plugin.Plugin` / `PluginManager`(可选,默认关闭,见 §8)。
 
 ## 二、逐项说明
 
@@ -56,7 +57,7 @@ Game(name, static_root, config, conversation, timer=None, logger=None,
 Simulator(on_agent=None, on_step=None, on_chat_line=None, on_story=None,
           max_workers=5, llm_concurrency=0, export_decisions=False,
           decisions_path="", roles=None, story=None, stride=2,
-          external_state=None, interaction_request=None)
+          external_state=None, interaction_request=None, plugins=None)
 ```
 
 - 回调:`on_agent(name, state, step, sim_time)`、`on_step(config)`、
@@ -103,15 +104,58 @@ def _check(game, ev) -> bool: ...
 - `inject_story_event(event)` / `recent_story_events(topk=2)`:剧情记忆写入与读取。
 - `is_awake()` / `llm_available()`:状态查询。
 
-### 7. 进程级钩子:`agent_core.chat_callback`
+### 7. 进程级钩子:`agent_core.chat_callback`(对话逐句)
+
+老写法(直接赋值)仍然有效:
 
 ```
 import mavisframework.core.agent_core as agent_core
 agent_core.chat_callback = lambda speaker, text: ...
 ```
 
-每产生一句对话就回调一次(实时可视化/前端推流用)。默认 `None` = 不回调。
-注意它是**进程级全局**,同一进程里只能有一个消费者,接入方用完应自行考虑收尾。
+多订阅者写法(推荐;与老写法共存,互不顶掉):
+
+```
+agent_core.subscribe_chat_line(fn)     # fn(speaker, text)
+agent_core.unsubscribe_chat_line(fn)
+```
+
+每产生一句对话,老写法回调与所有订阅者**各收到一次**——对话事件由 `_emit_chat_line`
+单一分发,只有一份来源。默认 `chat_callback=None` 且无订阅者 = 不回调。
+单个订阅者抛错会被隔离,不影响其它订阅者。接入方跑完应 `unsubscribe_chat_line(...)`
+收尾(Simulator 挂着插件时,`plugin_teardown()` 会自动退订)。
+
+### 8. 通用插件面:`Plugin` / `PluginManager`
+
+mavis 自己不认识任何具体插件,但任何外部包都能挂进来。插件接口:
+
+```
+from mavisframework.plugin import Plugin, PluginManager
+
+class MyPlugin(Plugin):
+    name = "my"                      # 标识,错误隔离与日志用
+    def setup(self, ctx=None): ...   # 挂进运行上下文时调一次(ctx 含 game/config/simulator)
+    def on_event(self, evt): ...     # 收到一个协议事件(agent / time / story / chat_line)
+    def teardown(self): ...          # 运行收尾时调一次(关连接 / 刷盘)
+```
+
+三个方法都**可选**实现,缺省是 no-op。**推荐形态:直接传插件实例列表**——
+实例天然带着自己的配置(带必传配置的插件只能用实例;用名字 `create("town")` 会因缺参
+抛错,入口点发现也会跳过它)。
+
+```
+sim = Simulator(..., plugins=[plugin_a, plugin_b])   # 不传 = 完全不介入
+...
+sim.plugin_teardown()   # 显式收尾(on_event 后插件立刻收到 agent/time/story/chat_line)
+```
+
+`PluginManager` 还提供可选的**按名注册表 + 入口点发现**:组名 `mavisframework.plugins`
+在外部包的 `pyproject.toml` 声明即被发现。发现只对"声明可无参构造"的插件生效——
+带必传配置的插件因签名含必需参数会被跳过,需调用方显式 `create(name, **配置)` 实例化。
+
+生命周期:随 `Game` / `Simulator` 的创建与收尾调用;`setup` 在首次 `simulate` 惰性挂载,
+`teardown` 由调用方显式触发。故障隔离:单个插件在 `setup` / `on_event` / `teardown`
+抛异常只记 warning,不打断其它插件,也不打断主循环。
 
 ## 三、新增能力的两条硬约定
 

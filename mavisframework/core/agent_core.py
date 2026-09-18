@@ -12,6 +12,7 @@
 - timer   : framework.core.timer.Timer(模拟时钟)
 """
 import datetime
+import logging
 import math
 import os
 import random
@@ -52,7 +53,41 @@ def _release_chat_pair(a: str, b: str) -> None:
         _active_chat_pairs.discard(pair)
 
 # 对话逐句回调:由外部(如 live 服务)设置,每生成一句话实时推送
+# 保留单一直接赋值的老写法(chat_callback = fn 照常生效);
+# 另支持多订阅者(subscribe_chat_line / unsubscribe_chat_line)。
+# 老写法与多订阅一并由 _emit_chat_line 分发,保证只有一份"对话事件"来源。
 chat_callback = None
+_chat_subscribers: set = set()
+_chat_subscribers_lock = threading.Lock()
+_chat_log = logging.getLogger("mavisframework.core.agent_core")
+
+
+def subscribe_chat_line(fn: Any) -> None:
+    """注册一个对话逐句订阅者;与 chat_callback 老写法共存,互不顶掉。"""
+    with _chat_subscribers_lock:
+        _chat_subscribers.add(fn)
+
+
+def unsubscribe_chat_line(fn: Any) -> None:
+    with _chat_subscribers_lock:
+        _chat_subscribers.discard(fn)
+
+
+def _emit_chat_line(speaker: str, text: str) -> None:
+    """对话逐句的唯一分发点:先走老写法(直接赋值),再走多订阅者。
+
+    老写法分支保持原样(不吞异常),使直接赋值的行为不变;
+    多订阅者逐个加 try/except 隔离,单个订阅者抛错不影响其它订阅者。
+    """
+    if chat_callback:
+        chat_callback(speaker, text)
+    with _chat_subscribers_lock:
+        subs = list(_chat_subscribers)
+    for sub in subs:
+        try:
+            sub(speaker, text)
+        except Exception:  # noqa: BLE001
+            _chat_log.warning("chat subscriber error", exc_info=True)
 
 # 事件重要性打分缓存(进程级):同一事件描述只调一次 LLM,后续复用
 _POIGNANCY_CACHE = {}
@@ -1130,8 +1165,7 @@ class Agent:
                 "generate_chat", self, other, relations[0], chats
             )
             # 逐句实时推送(不用等整段对话完成)
-            if chat_callback:
-                chat_callback(self.name, text)
+            _emit_chat_line(self.name, text)
 
             if i > 0:
                 # 对于发起对话的Agent，从第2轮对话开始，检查是否出现"复读"现象
@@ -1155,8 +1189,7 @@ class Agent:
                 "generate_chat", other, self, relations[1], chats
             )
             # 逐句实时推送
-            if chat_callback:
-                chat_callback(other.name, text)
+            _emit_chat_line(other.name, text)
             if i > 0:
                 # 对于响应对话的Agent，从第2轮开始，检查是否出现"复读"现象
                 end = self.completion(

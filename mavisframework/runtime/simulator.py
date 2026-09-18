@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List, Optional
 
 from mavisframework.core.timer import Timer
+from mavisframework.plugin import PluginManager
 
 
 class Simulator:
@@ -30,6 +31,7 @@ class Simulator:
         stride: int = 2,
         external_state: Optional[Callable] = None,       # 步级状态:(name, step, sim_time, game) -> dict
         interaction_request: Optional[Callable] = None,  # 交互请求:(step, sim_time, game) -> [{"from","to","focus"}]
+        plugins=None,                                    # 可选:插件实例列表或 PluginManager(默认关闭)
     ):
         self.on_agent = on_agent
         self.on_step = on_step
@@ -48,6 +50,45 @@ class Simulator:
         self.interaction_request = interaction_request
         # 交互请求执行记录(审计用)
         self.interactions: List[dict] = []
+        # 通用插件面(纯新增,默认关闭):不传时 self._pmgr 为 None,完全不介入
+        self.plugins = plugins
+        self._pmgr = plugins if isinstance(plugins, PluginManager) \
+            else (PluginManager(list(plugins)) if plugins else None)
+        self._plugins_setup = False
+        self._pmgr_chat = None
+
+    # ------------------------------------------------------------------
+    # 通用插件面(可选):生命周期与事件转发
+    # ------------------------------------------------------------------
+    def _ensure_plugins(self, game, config):
+        """首次 simulate 时惰性挂载插件:setup + 订阅对话逐句。"""
+        if self._pmgr is None or self._plugins_setup:
+            return
+        self._plugins_setup = True
+        from mavisframework.core import agent_core
+
+        self._pmgr_chat = self._make_chat_cb()
+        agent_core.subscribe_chat_line(self._pmgr_chat)
+        self._pmgr.setup({"game": game, "config": config, "simulator": self})
+
+    def _make_chat_cb(self):
+        def _cb(speaker, text):
+            if self._pmgr:
+                self._pmgr.emit(
+                    {"type": "chat_line", "speaker": speaker, "text": text})
+        return _cb
+
+    def plugin_teardown(self):
+        """显式收尾:退订对话订阅,再对所有插件 teardown。"""
+        if self._pmgr is None:
+            return
+        if self._pmgr_chat is not None:
+            from mavisframework.core import agent_core
+
+            agent_core.unsubscribe_chat_line(self._pmgr_chat)
+            self._pmgr_chat = None
+        self._pmgr.teardown()
+        self._plugins_setup = False
 
     # ------------------------------------------------------------------
     def _apply_injection_hooks(self, game, config, step_no: int, sim_time: str):
@@ -163,19 +204,23 @@ class Simulator:
             game.logger.info(
                 "STORY {} @ {}: {}".format(ev.get("id"), now_hm, ev.get("content", "")[:50])
             )
-            # 剧情注入事件广播(前端开发者控制台可见)
-            if self.on_story:
-                try:
-                    self.on_story({
-                        "type": "story",
-                        "id": ev.get("id"),
-                        "time": now_hm,
-                        "event_type": ev.get("event_type", ""),
-                        "content": ev.get("content", ""),
-                        "targets": targets,
-                    })
-                except Exception as e:
-                    game.logger.warning("story broadcast failed: {}".format(e))
+            # 剧情注入事件广播(前端开发者控制台可见;同一份事件也广播给插件总线)
+            if self.on_story is not None or self._pmgr:
+                _story_evt = {
+                    "type": "story",
+                    "id": ev.get("id"),
+                    "time": now_hm,
+                    "event_type": ev.get("event_type", ""),
+                    "content": ev.get("content", ""),
+                    "targets": targets,
+                }
+                if self.on_story is not None:
+                    try:
+                        self.on_story(_story_evt)
+                    except Exception as e:
+                        game.logger.warning("story broadcast failed: {}".format(e))
+                if self._pmgr:
+                    self._pmgr.emit(_story_evt)
 
     def simulate(self, game, config, step, stride=0, start_step=0, checkpoints_folder="", on_step=None, on_agent=None):
         """连续模拟多步(等价 SimulateServer.simulate)
@@ -190,6 +235,8 @@ class Simulator:
         on_step = on_step or self.on_step
         on_agent = on_agent or self.on_agent
         timer = game._timer
+        # 通用插件面:首次 simulate 惰性 setup + 订阅(不传插件则无操作)
+        self._ensure_plugins(game, config)
         for i in range(start_step, start_step + step):
             title = "Simulate Step[{}/{}, time: {}]".format(i + 1, start_step + step, timer.get_date())
             game.logger.info("\n" + split_line(title, "="))
@@ -228,8 +275,19 @@ class Simulator:
                     agent.observe_consequence(action_desc)
 
                     # 逐 Agent 回调:单个 Agent 思考完成即可推送(实时可视化)
-                    if on_agent is not None:
-                        on_agent(name, config["agents"][name], i + 1, sim_time)
+                    # 同一份 state 也作为 agent 事件转发给插件总线
+                    if on_agent is not None or self._pmgr:
+                        _state = config["agents"][name]
+                        if on_agent is not None:
+                            on_agent(name, _state, i + 1, sim_time)
+                        if self._pmgr:
+                            self._pmgr.emit({
+                                "type": "agent", "name": name,
+                                "coord": _state.get("coord"),
+                                "path": list(_state.get("path") or []),
+                                "time": sim_time,
+                                "state": _state,
+                            })
 
             config.update({"time": sim_time, "step": i + 1})
 
@@ -244,8 +302,12 @@ class Simulator:
                     self._export_decisions(checkpoints_folder, game)
 
             # 实时可视化:每个 step 完成后通知外部
-            if on_step is not None:
-                on_step(config)
+            if on_step is not None or self._pmgr:
+                if on_step is not None:
+                    on_step(config)
+                if self._pmgr:
+                    self._pmgr.emit(
+                        {"type": "time", "time": config.get("time") or sim_time})
 
             if stride > 0:
                 timer.forward(stride)
@@ -311,10 +373,15 @@ class Simulator:
     def emit_time(self, time_str: str):
         if self.on_step:
             self.on_step({"time": time_str})
+        if self._pmgr:
+            self._pmgr.emit({"type": "time", "time": time_str})
 
     def emit_chat_line(self, speaker: str, text: str):
         if self.on_chat_line:
             self.on_chat_line(speaker, text)
+        if self._pmgr:
+            self._pmgr.emit(
+                {"type": "chat_line", "speaker": speaker, "text": text})
 
 
 # ---------------------------------------------------------------------------

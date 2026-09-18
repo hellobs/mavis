@@ -31,6 +31,7 @@ import mavisframework
 from mavisframework.config.loader import load_config
 from mavisframework.core import agent_core
 from mavisframework.core.agent_core import Agent
+from mavisframework.plugin import Plugin, PluginManager
 from mavisframework.runtime.game import Game
 from mavisframework.runtime.simulator import Simulator
 
@@ -157,12 +158,14 @@ def test_simulator_public_signature_stable():
     p = _params(Simulator.__init__)
     for name in ("on_agent", "on_step", "on_chat_line", "on_story", "max_workers",
                  "export_decisions", "decisions_path", "roles", "story", "stride",
-                 "external_state", "interaction_request"):
+                 "external_state", "interaction_request", "plugins"):
         assert name in p, "Simulator 少了构造参数: {}".format(name)
     assert p["external_state"].default is None
     assert p["interaction_request"].default is None
     assert p["on_agent"].default is None and p["on_step"].default is None
     assert p["on_story"].default is None
+    # 通用插件面:默认 None = 完全不介入
+    assert p["plugins"].default is None
 
 
 def test_simulate_public_signature_stable():
@@ -243,6 +246,45 @@ def test_register_condition_decorator_and_registry():
 
 def test_chat_callback_module_hook_exists():
     assert hasattr(agent_core, "chat_callback")
+
+
+# ---------------------------------------------------------------------------
+# 契约:通用插件面(Plugin / PluginManager)
+# ---------------------------------------------------------------------------
+def test_plugin_base_interface_signature_and_default_noop():
+    """Plugin 三个方法都可选:签名是 (self, ctx=None)/(self, evt)/(self),缺省 no-op。"""
+    for meth in ("setup", "on_event", "teardown"):
+        assert callable(getattr(Plugin, meth, None)), "Plugin 少了方法: {}".format(meth)
+    p = Plugin()
+    # 三个方法不抛、也不要求返回值(接入口缺省行为 = 什么都不做)
+    p.setup({"game": 1, "config": {}})   # 用元数据 ctx 调用不会炸
+    p.on_event({"type": "time", "time": "t"})
+    p.teardown()
+
+
+def test_pluginmanager_surface_and_empty_registry():
+    """PluginManager 的公开面齐全;默认注册表为空、空管理器调用无副作用。"""
+    for meth in ("register", "names", "create", "discover",
+                 "mount", "mount_by_name", "setup", "emit", "teardown"):
+        assert callable(getattr(PluginManager, meth, None)), \
+            "PluginManager 少了方法: {}".format(meth)
+    assert isinstance(PluginManager.REGISTRY, dict)
+    # 框架不预注册任何插件:mavis 不认识具体插件,入口点组由外部包自报
+    assert "ext_required" not in PluginManager.REGISTRY
+    mgr = PluginManager()
+    assert not mgr                      # 空管理器为 falsy
+    assert mgr.plugins == []
+    mgr.setup({"game": 1})              # 空操作,不抛
+    mgr.emit({"type": "time", "time": "t"})
+    mgr.teardown()
+
+
+def test_simulator_plugins_default_off_no_pmgr():
+    """不传 plugins 时 Simulator 不建内部管理器,行为与历史版一致。"""
+    sim = Simulator()
+    assert sim.plugins is None
+    assert sim._pmgr is None            # 无插件 = 无管理器 = 完全不介入
+    assert len(sim.interactions) == 0
 
 
 # ---------------------------------------------------------------------------

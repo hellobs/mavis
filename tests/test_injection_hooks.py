@@ -5,6 +5,16 @@
 1. 角色指令 / 步级外部状态进入提示词;两者为空时输出与基线一致。
 2. 未提供钩子时 Simulator 行为不变(属性为 None、无交互记录、不触碰 game)。
 3. 交互请求入口:forced=True 跳过冷却与"是否想聊"概率门;非 forced 仍受冷却限制。
+4. Location 转移:默认关闭零回归;显式开启才累计概率并重定向目标地址。
+
+为何本文件(含 Location 转移)与 case01 同居一个分支:
+- 三条注入钩子(external_state / interaction_request / role_directive)由
+  case01「事件参数约束」接入 mavis 时提出:它让外部世界事实进入角色,而
+  不改 mavis 现有行为语义。
+- Location 转移(让场景人物"尽可能移动")本与 case01 约束无关,但同期由引擎
+  侧(mavis 属 ZZR)按可视化/演示场景需要并入,故一并提交便于统一评审。
+  mavis 侧硬约束不变:所有新增默认关闭,需显式开启才会改变 agent 行为;
+  case01 受控实验靠钉定坐标保证关键交互,不依赖也不开启转移。
 """
 import datetime
 
@@ -217,3 +227,61 @@ class TestForcedInteraction:
         assert a._chat_with(b, "咨询主题") is False
         assert "decide_chat" not in calls
         assert not a.conversation
+
+
+class TestLocationTransfer:
+    """Location 转移(演示/可视化场景主动开启)。
+
+    边界:默认关闭(对齐"mavis 纯新增、默认关闭"),需要人物移动的场景
+    (演示小镇/可视化)显式配 agent config["transfer"]["enabled"]=true。
+    受控实验(如 case01 injector)靠钉定坐标保证关键交互,不开启转移。
+    """
+
+    def test_transfer_default_off(self):
+        agent = _mk_agent()  # 未配 transfer → enabled False
+        assert agent._transfer_enabled is False
+        addr = ["the Ville", "甲区"]
+        for _ in range(20):
+            assert agent._maybe_transfer(addr) == addr  # 永不转移
+        # 未开启时不累计概率,始终停留在初始 base
+        assert agent._transfer_prob == 0.0
+
+    def test_transfer_explicit_false_is_off(self):
+        agent = _mk_agent(transfer={"enabled": False})
+        assert agent._transfer_enabled is False
+        assert agent._transfer_base == 0.0
+
+    def test_transfer_config_overrides_are_read(self):
+        agent = _mk_agent(transfer={
+            "enabled": True, "base": 0.2, "increment": 0.3, "max": 0.7,
+        })
+        assert agent._transfer_enabled is True
+        assert agent._transfer_base == 0.2
+        assert agent._transfer_increment == 0.3
+        assert agent._transfer_max == 0.7
+        assert agent._transfer_prob == 0.2  # 初始 = base
+
+    def test_transfer_redirects_and_resets_on_trigger(self, monkeypatch):
+        import mavisframework.core.agent_core as core
+
+        agent = _mk_agent(transfer={
+            "enabled": True, "base": 0.0, "increment": 0.5, "max": 0.6,
+        })
+        monkeypatch.setattr(
+            agent, "_pick_other_location", lambda cur: ["the Ville", "乙区"])
+        # 固定随机数 0.1 < prob(0.6)→ 必然触发;随机指向另一个顶层区域
+        monkeypatch.setattr(core.random, "random", lambda: 0.1)
+        agent._transfer_prob = 0.5  # 已累积若干次 action
+        out = agent._maybe_transfer(["the Ville", "甲区"])
+        assert out == ["the Ville", "乙区"], "触发后应重定向到另一区域"
+        assert agent._transfer_prob == 0.0, "触发后应重置到 base"
+
+    def test_transfer_not_redirect_when_random_above_prob(self, monkeypatch):
+        import mavisframework.core.agent_core as core
+
+        agent = _mk_agent(transfer={"enabled": True, "increment": 0.1})
+        monkeypatch.setattr(core.random, "random", lambda: 0.99)
+        addr = ["the Ville", "甲区"]
+        # prob 从 base 升到 0.1,random 0.99 >= 0.1 → 不转移
+        assert agent._maybe_transfer(addr) == addr
+        assert agent._transfer_prob == 0.1, "未触发时概率应保留/累计"

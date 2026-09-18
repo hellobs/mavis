@@ -204,13 +204,14 @@ class Agent:
             self._tendency_decay_per_hour = 0.6
         self._governance = None
         self._consequence_fn = None
-        # Location 转移(TongMu:尽可能让场景中人物移动)
+        # Location 转移(演示/可视化场景主动开启;对齐"mavis 纯新增、默认关闭"边界)
         # 每次 agent 做 action 时累计一个"转移到其他 Location"的概率,触发后把
         # 该 action 的目标地址重定向到另一个区域的随机叶子,角色真实穿过地图走过去。
         # 转移配置(agent config["transfer"]):
-        #   enabled(默认 True) / base(累计起点) / increment(每次 action 增量) / max(上限)
+        #   enabled(默认 False,显式开启才会移动) / base(累计起点) /
+        #   increment(每次 action 增量) / max(上限)
         _tr_cfg = config.get("transfer", {}) or {}
-        self._transfer_enabled = bool(_tr_cfg.get("enabled", True))
+        self._transfer_enabled = bool(_tr_cfg.get("enabled", False))
         self._transfer_base = float(_tr_cfg.get("base", 0.0))
         self._transfer_increment = float(_tr_cfg.get("increment", 0.12))
         self._transfer_max = float(_tr_cfg.get("max", 0.85))
@@ -995,9 +996,13 @@ class Agent:
     def _maybe_transfer(self, address):
         """每次做 action 增大转移到其他 Location 的概率;触发后重置累积并重定向。
 
-        increment 上限钳制(不无限逼近 1):保证触发是"经常但不必然"。
-        重定向只影响本次 action 的目标地址,find_path 据此算出跨场景路径。
+        默认关闭:enabled=False 时完全短路(不累计、不碰 spatial,零行为变化);
+        仅可视化/演示场景显式开启。increment 上限钳制(不无限逼近 1)保证触发
+        是"经常但不必然"。重定向只影响本次 action 的目标地址,find_path 据此
+        算出跨场景路径。
         """
+        if not self._transfer_enabled:
+            return address
         self._transfer_prob = min(
             self._transfer_prob + self._transfer_increment, self._transfer_max)
         if random.random() >= self._transfer_prob:

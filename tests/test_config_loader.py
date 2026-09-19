@@ -38,6 +38,22 @@ class TestResolveAssetsRoot:
     def test_empty_returns_empty(self):
         assert _resolve_assets_root("") == ""
 
+    def test_absolute_path_keeps_root_and_drive(self, tmp_path):
+        """绝对路径必须原样保留:只规范化分隔符,不许吃掉根或驱动器。
+
+        这是 2026-09-18 那次 Linux CI 红的根因——旧实现
+        `os.path.join(*assets_root.split("/"))` 对 POSIX 绝对路径会吃掉前导斜杠,
+        对 Windows 的 `D:/x` 会拼成驱动器相对路径 `D:x`。
+        这里把宿主的绝对路径改写成正斜杠形式当输入,两个平台上都能复现旧缺陷
+        (断言用精确值 + isabs,不用"是否等于某相对路径"这类在 POSIX 上会假通过的写法)。
+        """
+        forward = str(tmp_path).replace(os.sep, "/")
+        resolved = _resolve_assets_root(forward)
+        assert resolved == os.path.normpath(forward)
+        assert os.path.isabs(resolved)
+        # 拼出来的子路径也必须仍在那个绝对根之下
+        assert os.path.join(resolved, "maze.json").startswith(os.path.normpath(forward))
+
 
 # ---------------------------------------------------------------------------
 # load_config

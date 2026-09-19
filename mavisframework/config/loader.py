@@ -91,10 +91,20 @@ import datetime
 
 
 def _resolve_assets_root(assets_root: Optional[str]) -> str:
-    """解析静态资源相对根:优先显式参数 > 环境变量 > 默认 'assets/village'"""
+    """解析静态资源相对根:优先显式参数 > 环境变量 > 默认 'assets/village'
+
+    规范化分隔符用 normpath,不用 `os.path.join(*assets_root.split("/"))`:后者对
+    绝对路径是破坏性的。POSIX 上 `"/a/b".split("/")` 得到 `['', 'a', 'b']`,
+    `os.path.join('', 'a', 'b')` 把开头的空串拼成了相对路径,前导斜杠被吃掉;
+    Windows 上 `"D:/a/b"` 会被拼成驱动器相对路径 `"D:a\\b"`。调用方若把结果再拼到
+    static_root 下,就会得到"根 + 根/文件"这种翻倍路径。
+    该缺陷只在传入绝对 POSIX 路径时出现:开发机是 Windows,绝对路径不含正斜杠、
+    原样通过,本地复现不出来,换平台才现形(2026-09-18 一次真实故障的根因)。
+    normpath 保留绝对性与驱动器,同时照样完成"正斜杠 → 平台分隔符"的规范化。
+    """
     if assets_root is None:
         assets_root = os.environ.get("MAVIS_ASSETS_ROOT", os.path.join("assets", "village"))
-    return os.path.join(*assets_root.split("/")) if assets_root else ""
+    return os.path.normpath(assets_root) if assets_root else ""
 
 
 def load_config(start_time: str = "20240213-09:30", stride: int = 15,

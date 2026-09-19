@@ -60,11 +60,11 @@ pip install -e .
 
 # Release/pinned version: build wheel and install
 pip install .                          # install from source directly
-python -m build && pip install dist/mavisframework-1.2.0-py3-none-any.whl
+python -m build && pip install dist/mavisframework-1.2.1-py3-none-any.whl
 
 # uv also works (optional; toolchain of your choice)
 # uv pip install -e .
-# uv build && uv pip install dist/mavisframework-1.2.0-py3-none-any.whl
+# uv build && uv pip install dist/mavisframework-1.2.1-py3-none-any.whl
 ```
 
 Runtime dependencies are only `pydantic>=2.0` and `requests>=2.31`; there are

@@ -32,6 +32,8 @@ from mavisframework.config.validator import (
 )
 # 场景声明构建器(scenario.yaml 生成;确定性,复用 case_engine schema 校验)
 import scenario_builder
+# 引擎运行器(运行场景自检;惰性定位 case_engine)
+import engine_runner
 
 app = FastAPI(title="MAVIS 角色配置工具")
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
@@ -510,6 +512,37 @@ def _case_engine_available() -> bool:
     """case_engine 是否可被引擎校验定位(决定校验深度提示)。"""
     import os as _os
     return _os.path.isdir(_os.path.join(_PLATFORM_DIR, "case_engine"))
+
+
+# ---------------------------------------------------------------------------
+# 引擎运行器(界面切换跑 case00/case01 自检)
+# ---------------------------------------------------------------------------
+@app.get("/run", response_class=HTMLResponse)
+async def run_page(request: Request):
+    """运行页:场景选择器(case00/case01)+ 引擎 + 受判回答 → 一键运行。"""
+    cases = engine_runner.list_cases(_PLATFORM_DIR)
+    return templates.TemplateResponse(
+        request, "run.html",
+        {"cases": cases,
+         "platform_dir": _PLATFORM_DIR,
+         "engine_available": _case_engine_available(),
+         "active": "run"},
+    )
+
+
+@app.post("/api/run/execute")
+async def run_execute(request: Request):
+    """执行引擎运行;返回结构化结果(含 run_type/branch/consistency/timeline)。"""
+    body = await request.json()
+    case_id = str((body or {}).get("case_id") or "").strip()
+    engine_id = str((body or {}).get("engine_id") or "").strip()
+    input_text = str((body or {}).get("input_text") or "").strip()
+    if not case_id:
+        return JSONResponse({"ok": False, "errors": ["case_id 必填"]})
+    ok, summary, errors = engine_runner.run_case(
+        _PLATFORM_DIR, case_id, engine_id=engine_id, input_text=input_text)
+    return JSONResponse({"ok": ok, "summary": summary, "errors": errors,
+                         "case_id": case_id, "engine_used": summary.get("_engine_id", "")})
 
 
 @app.post("/api/generate")

@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}引擎运行器{% endblock %}
+{% block content %}
+<h1>引擎运行器</h1>
+<p class="hint">在界面上切换场景与引擎,一键运行自检。case01(受控实验)可真跑返回分支/状态/一致性/时间线;case00(价值沙盒)跑装配预检,需 mavis 环境。</p>
+
+<div class="section">
+    <label>场景 <span class="req">*</span> <span class="opt">取自 <code>cases/&lt;case_id&gt;/scenario.yaml</code></span></label>
+    <select id="case_id">
+        {% for c in cases %}
+        <option value="{{ c.case_id }}">{{ c.case_id }} {% if c.engine_infer %}(推荐引擎: {{ c.engine_infer }}){% endif %}</option>
+        {% endfor %}
+    </select>
+
+    <label>引擎 <span class="opt">留空用场景推荐的默认引擎</span></label>
+    <select id="engine_id">
+        <option value="">场景默认</option>
+        <option value="experiment-eval">experiment-eval(受控实验 / 评估)</option>
+        <option value="sandbox-value">sandbox-value(价值权重沙盒)</option>
+    </select>
+
+    <label>受判对象回答 <span class="opt">experiment-eval 需要;sandbox-value 忽略</span></label>
+    <textarea id="input_text" placeholder="例:我建议分阶段先小规模试点"></textarea>
+
+    <div style="margin-top:14px;">
+        <button type="button" onclick="execRun()">运行自检</button>
+    </div>
+</div>
+
+<div id="result" style="margin-top:18px;"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function esc(v){
+    if(v === null || v === undefined) return "";
+    return String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function fmt(key, val){
+    if(typeof val === "boolean") return val ? "<b style='color:#2d6cdf'>是</b>" : "<b style='color:#c05'>否</b>";
+    if(typeof val === "object") return "<pre class='kv'>"+esc(JSON.stringify(val,null,2))+"</pre>";
+    return esc(val);
+}
+function render(res){
+    var h = "<h3>"+esc(res.case_id)+" → "+esc(res.engine_used||"?")+"</h3>";
+    if(!res.ok){
+        h += "<div class='error'>"+(res.errors||[]).map(esc).join("<br>")+"</div>";
+        document.getElementById("result").innerHTML=h; return;
+    }
+    var s = res.summary||{};
+    h += "<table class='kv-table'>";
+    var rows = [
+        ["run_type", s.run_type], ["scenario", s.scenario], ["branch", s.branch],
+        ["engine", s.engine]
+    ];
+    if(s.all_ok !== undefined) rows.push(["可装配", s.all_ok]);
+    if(s.consistency) rows.push(["一致性", s.consistency.verdict+" — "+s.consistency.reason]);
+    if(s._engine_id && s._uses_default_engine) rows.push(["引擎来源", "场景默认(未显式覆盖)"]);
+    if(s.state) rows.push(["状态", s.state]);
+    rows.forEach(function(r){
+        h += "<tr><td class='k'>"+esc(r[0])+"</td><td>"+fmt(r[0], r[1])+"</td></tr>";
+    });
+    h += "</table>";
+    // 时间线节点(若有)
+    if(Array.isArray(s.timeline) && s.timeline.length){
+        h += "<h4>时间线节点 ("+s.timeline.length+")</h4><table class='kv-table'><tr><th>日期</th><th>价格($)</th><th>事件数</th><th>交互</th><th>需交互</th></tr>";
+        s.timeline.forEach(function(n){
+            var px = n.world ? (n.world.price_usd !== undefined ? n.world.price_usd : "") : "";
+            h += "<tr><td>"+esc(n.date)+"</td><td>"+esc(px)+"</td><td>"+(n.events?n.events.length:0)+
+                 "</td><td>"+((n.interactions&&n.interactions.length)?esc(n.interactions[0].from+"→"+n.interactions[0].to):"-")+
+                 "</td><td>"+(n.require_interaction?"是":"-")+"</td></tr>";
+        });
+        h += "</table>";
+    }
+    // 未接线引擎提示
+    if(/NotImplemented|未接线/.test((s.error)||"")) h += "<div class='hint'>"+esc(s.error)+"</div>";
+    document.getElementById("result").innerHTML=h;
+}
+function execRun(){
+    fetch("/api/run/execute", {method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+            case_id: document.getElementById("case_id").value,
+            engine_id: document.getElementById("engine_id").value,
+            input_text: document.getElementById("input_text").value
+        })})
+    .then(function(r){return r.json();})
+    .then(render)
+    .catch(function(e){ document.getElementById("result").innerHTML="<div class='error'>请求失败: "+esc(e)+"</div>"; });
+}
+</script>
+<style>
+.kv-table{border-collapse:collapse; width:100%; margin-top:8px;}
+.kv-table th,.kv-table td{border:1px solid #e0e0e0; padding:6px 10px; text-align:left; vertical-align:top; font-size:13px;}
+.kv-table .k{font-weight:600; width:90px; color:#555;}
+pre.kv{white-space:pre-wrap; margin:0; font-size:12px;}
+.error{background:#fbeaea; color:#b00020; border:1px solid #f0c0c0; padding:10px; border-radius:6px;}
+</style>
+{% endblock %}

@@ -18,6 +18,7 @@ import shutil
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MAVIS_DIR = os.path.join(os.path.dirname(BASE_DIR), "mavisframework")
 sys.path.insert(0, MAVIS_DIR)  # 允许 import mavisframework.*
+sys.path.insert(0, BASE_DIR)   # 允许 import scenario_builder(同目录)
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -29,6 +30,8 @@ import uvicorn
 from mavisframework.config.validator import (
     validate_agents, validate_relationships, validate_story,
 )
+# 场景声明构建器(scenario.yaml 生成;确定性,复用 case_engine schema 校验)
+import scenario_builder
 
 app = FastAPI(title="MAVIS 角色配置工具")
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
@@ -421,6 +424,92 @@ async def agents_page(request: Request):
         request, "agents.html",
         {"agents": _list_agents(), "active": "agents"}
     )
+
+
+# ---------------------------------------------------------------------------
+# 场景创建器(scenario.yaml 生成与落盘;确定性,复用 case_engine schema 校验)
+# ---------------------------------------------------------------------------
+@app.get("/scenario", response_class=HTMLResponse)
+async def scenario_page(request: Request):
+    """场景创建页:表单 + 已发现场景列表。"""
+    scenes = _list_scenarios()
+    return templates.TemplateResponse(
+        request, "scenario.html",
+        {"scene_builder": scenario_builder,
+         "scenes": scenes,
+         "platform_dir": _PLATFORM_DIR,
+         "engines": scenario_builder.SUPPORTED_ENGINES,
+         "active": "scenario"},
+    )
+
+
+def _list_scenarios() -> list:
+    """扫描 cases_dir 下已落盘的场景 yaml,返回摘要列表。"""
+    cases_root = scenario_builder.cases_dir(_PLATFORM_DIR)
+    out = []
+    if not os.path.isdir(cases_root):
+        return out
+    for cid in sorted(os.listdir(cases_root)):
+        yp = os.path.join(cases_root, cid, "scenario.yaml")
+        if not os.path.isfile(yp):
+            continue
+        try:
+            import yaml
+            with open(yp, encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            meta = data.get("meta") or {}
+            out.append({
+                "case_id": meta.get("case_id") or cid,
+                "name": meta.get("name", ""),
+                "engine": meta.get("engine", ""),
+                "n_roles": len(data.get("roles") or []),
+                "path": yp,
+            })
+        except Exception:  # noqa: BLE001 —— 单场景读取失败不拖垮列表
+            out.append({"case_id": cid, "name": "(解析失败)", "engine": "", "path": yp})
+    return out
+
+
+@app.post("/api/scenario/preview")
+async def scenario_preview(request: Request):
+    """接收表单 → 生成 scenario.yaml 文本 + 校验结果(不落盘,供预览/评审)。"""
+    form = await request.json()
+    try:
+        cfg = scenario_builder.build_scenario(form)
+    except Exception as exc:  # noqa: BLE001 —— 构建失败给可读错误
+        return JSONResponse({"ok": False, "errors": ["构建失败: {}".format(exc)]})
+    ok, errors = scenario_builder.validate_scenario(cfg, _PLATFORM_DIR)
+    body = {
+        "ok": True,
+        "yaml": scenario_builder.dump_scenario_yaml(cfg),
+        "case_id": (cfg.get("meta") or {}).get("case_id"),
+        "engine_check": ok,
+        "errors": errors,
+        "case_engine_available": _case_engine_available(),
+    }
+    return JSONResponse(body)
+
+
+@app.post("/api/scenario/save")
+async def scenario_save(request: Request):
+    """校验通过后把场景写入 cases/<case_id>/scenario.yaml。"""
+    form = await request.json()
+    try:
+        cfg = scenario_builder.build_scenario(form)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "errors": ["构建失败: {}".format(exc)]})
+    ok, errors = scenario_builder.validate_scenario(cfg, _PLATFORM_DIR)
+    if not ok:
+        return JSONResponse({"ok": False, "errors": errors or ["校验未通过"]})
+    path = scenario_builder.save_scenario(_PLATFORM_DIR, cfg)
+    return JSONResponse({"ok": True, "path": path,
+                         "case_id": (cfg.get("meta") or {}).get("case_id")})
+
+
+def _case_engine_available() -> bool:
+    """case_engine 是否可被引擎校验定位(决定校验深度提示)。"""
+    import os as _os
+    return _os.path.isdir(_os.path.join(_PLATFORM_DIR, "case_engine"))
 
 
 @app.post("/api/generate")

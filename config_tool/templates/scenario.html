@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}场景创建器{% endblock %}
+{% block content %}
+<h1>场景创建器</h1>
+<p class="hint">按结构化表单生成 <code>scenario.yaml</code>;保存前用 case_engine 的 schema 校验,保证"你能创建的就是引擎能跑的"。导出后放入 <code>cases/&lt;case_id&gt;/</code> 即可运行。</p>
+
+{% if scenes %}
+<h2>已发现场景(<code>cases/</code> 目录)</h2>
+<table>
+    <tr><th>case_id</th><th>名称</th><th>引擎</th><th>角色数</th><th>路径</th></tr>
+    {% for s in scenes %}
+    <tr>
+        <td>{{ s.case_id }}</td>
+        <td>{{ s.name }}</td>
+        <td>{{ s.engine or "?" }}</td>
+        <td>{{ s.n_roles }}</td>
+        <td style="font-size:11px; color:#777;">{{ s.path }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% else %}
+<p class="hint">尚未发现任何场景;从下方表单创建第一个。</p>
+{% endif %}
+
+<h2>新建场景</h2>
+
+<div class="section">
+    <label>引擎 <span class="req">*</span> <span class="opt">决定场景挂哪类运行策略;运行时仍可 --engine 覆盖</span></label>
+    <select id="engine">
+        {% for eid, name in engines.items() %}
+        <option value="{{ eid }}">{{ eid }} — {{ name }}</option>
+        {% endfor %}
+    </select>
+
+    <div class="row">
+        <div>
+            <label>case_id <span class="req">*</span> <span class="opt">字母数字/下划线/短横线,首字母数字</span></label>
+            <input type="text" id="case_id" placeholder="如 case03">
+        </div>
+        <div>
+            <label>名称 <span class="req">*</span></label>
+            <input type="text" id="name" placeholder="如 新品发布会评审">
+        </div>
+    </div>
+    <label>描述</label>
+    <textarea id="description"></textarea>
+    <div class="row">
+        <div><label>开始日期</label><input type="text" id="start_date" placeholder="2026-09-01"></div>
+        <div><label>结束日期</label><input type="text" id="end_date" placeholder="2026-09-30"></div>
+    </div>
+</div>
+
+<h2>角色</h2>
+<div class="section">
+    <table id="roles-table">
+        <tr>
+            <th>id</th><th>display_name</th><th>type</th><th>llm</th>
+            <th style="width:18%">system_prompt</th><th>max_tokens</th><th>temperature</th><th></th>
+        </tr>
+        <tbody id="roles-body"></tbody>
+    </table>
+    <button type="button" onclick="addRole()" style="margin-top:10px; padding:6px 16px; font-size:12px; background:#555;">+ 添加角色</button>
+</div>
+
+<h2>世界状态(主角可变字段)</h2>
+<div class="section">
+    <table>
+        <thead><tr><th>字段</th><th>初始值</th><th>类型</th><th></th></tr></thead>
+        <tbody id="state-body"></tbody>
+    </table>
+    <button type="button" onclick="addState()" style="margin-top:10px; padding:6px 16px; font-size:12px; background:#555;">+ 添加状态字段</button>
+</div>
+
+<h2>分支判定(experiment-eval 消费)</h2>
+<div class="section">
+    <label>默认分支 <span class="opt">未命中任何词表时返回的分支 id,如 A/B/C</span></label>
+    <input type="text" id="branch_default" placeholder="如 C">
+    <div class="row">
+        <div>
+            <label>否决不参与(no_buy)</label>
+            <textarea id="branch_no_buy" placeholder="每行一个关键词&#10;如:不建议购买,不买,反对"></textarea>
+        </div>
+        <div>
+            <label>拒绝/无法判断(refuse)</label>
+            <textarea id="branch_refuse" placeholder="每行一个关键词"></textarea>
+        </div>
+    </div>
+    <div class="row">
+        <div>
+            <label>条件化(conditional)</label>
+            <textarea id="branch_conditional" placeholder="每行一个关键词&#10;如:分阶段,小规模,先试点"></textarea>
+        </div>
+        <div>
+            <label>反对全量(anti_allin)</label>
+            <textarea id="branch_anti_allin" placeholder="每行一个关键词"></textarea>
+        </div>
+    </div>
+    <label>fallback_map <span class="opt">JSON:每分支对状态字段的改变,如 {"A": {"approved": true}}</span></label>
+    <textarea id="branch_fallback_map" placeholder='{"A": {"approved": true}, "B": {"approved": false}}'></textarea>
+</div>
+
+<h2>一致性信号词</h2>
+<div class="section">
+    <div class="row">
+        <div>
+            <label>一致(buy_words)</label>
+            <textarea id="cons_buy_words" placeholder="每行一个关键词"></textarea>
+        </div>
+        <div>
+            <label>条件化一致(cond_words)</label>
+            <textarea id="cons_cond_words" placeholder="每行一个关键词"></textarea>
+        </div>
+    </div>
+    <div class="row">
+        <div>
+            <label>否定词(negators)</label>
+            <textarea id="cons_negators" placeholder="每行一个关键词"></textarea>
+        </div>
+        <div>
+            <label>否定短语(neg_phrases)</label>
+            <textarea id="cons_neg_phrases" placeholder="每行一个关键词"></textarea>
+        </div>
+    </div>
+</div>
+
+<h2>高级 / 自定义(custom 透传)</h2>
+<div class="section">
+    <label>scenario_assets <span class="opt">sandbox-value 场景可填;相对平台根。留空则由 custom YAML 提供</span></label>
+    <div class="row">
+        <div><label class="opt">story</label><input type="text" id="asset_story"></div>
+        <div><label class="opt">relationships</label><input type="text" id="asset_relationships"></div>
+        <div><label class="opt">maze</label><input type="text" id="asset_maze"></div>
+        <div><label class="opt">agents</label><input type="text" id="asset_agents"></div>
+        <div><label class="opt">governance</label><input type="text" id="asset_governance"></div>
+    </div>
+    <label>custom YAML <span class="opt">原样合并进 custom(深合并),可覆盖上面字段</span></label>
+    <textarea id="custom_yaml" style="height:90px;" placeholder="value_tendency:&#10;  governance: {}</textarea>
+</div>
+
+<div style="margin-top:20px;">
+    <button type="button" onclick="preview()">预览并校验</button>
+    <button type="button" onclick="saveScene()" style="margin-left:12px; background:#2d6cdf;">保存场景</button>
+</div>
+<pre id="result" style="background:#f5f5f5; border:1px solid #e0e0e0; padding:14px; margin-top:16px; font-size:12px; display:none;"></pre>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function readRoles() {
+    var out = [];
+    document.querySelectorAll("#roles-body tr").forEach(function(tr){
+        var id = tr.querySelector(".r-id").value.trim();
+        if (!id) return;
+        out.push({
+            id: id,
+            display_name: tr.querySelector(".r-name").value.trim(),
+            type: tr.querySelector(".r-type").value,
+            llm: tr.querySelector(".r-llm").value,
+            system_prompt: tr.querySelector(".r-prompt").value,
+            max_tokens: parseInt(tr.querySelector(".r-tokens").value || 2048),
+            temperature: parseFloat(tr.querySelector(".r-temp").value || 0.5),
+        });
+    });
+    return out;
+}
+function addRole(){
+    var tb=document.getElementById("roles-body"), tr=document.createElement("tr");
+    tr.innerHTML='<td><input class="r-id" data-input></td>'+
+        '<td><input class="r-name" data-input></td>'+
+        '<td><select class="r-type"><option value="ai_tool">ai_tool</option><option value="user">user</option></select></td>'+
+        '<td><select class="r-llm"><option value="local">local</option><option value="external">external</option></select></td>'+
+        '<td><textarea class="r-prompt" data-input></textarea></td>'+
+        '<td><input class="r-tokens" type="number" value="2048" data-input style="width:80px"></td>'+
+        '<td><input class="r-temp" type="number" step="0.1" value="0.5" data-input style="width:70px"></td>'+
+        '<td><button class="del-btn" onclick="this.closest(\'tr\').remove()">删</button></td>';
+    tb.appendChild(tr);
+}
+function readStates(){
+    var out=[];
+    document.querySelectorAll("#state-body tr").forEach(function(tr){
+        var k=tr.querySelector(".s-key").value.trim();
+        if(!k) return;
+        out.push({field:k, initial:tr.querySelector(".s-init").value, type:tr.querySelector(".s-type").value});
+    });
+    return out;
+}
+function addState(){
+    var tb=document.getElementById("state-body"), tr=document.createElement("tr");
+    tr.innerHTML='<td><input class="s-key" data-input></td>'+
+        '<td><input class="s-init" data-input></td>'+
+        '<td><select class="s-type"><option value="bool">bool</option><option value="float">float</option><option value="int">int</option><option value="str">str</option></select></td>'+
+        '<td><button class="del-btn" onclick="this.closest(\'tr\').remove()">删</button></td>';
+    tb.appendChild(tr);
+}
+function parseJson(sel, def){
+    var v=document.getElementById(sel).value.trim(); if(!v) return def;
+    try { return JSON.parse(v); } catch(e){ return def; }
+}
+function collectForm(){
+    var fm=parseJson("branch_fallback_map", {});
+    return {
+        engine: document.getElementById("engine").value,
+        case_id: document.getElementById("case_id").value,
+        name: document.getElementById("name").value,
+        description: document.getElementById("description").value,
+        start_date: document.getElementById("start_date").value,
+        end_date: document.getElementById("end_date").value,
+        roles: readRoles(), state_schema: readStates(),
+        branch_default: document.getElementById("branch_default").value,
+        branch_no_buy: document.getElementById("branch_no_buy").value,
+        branch_refuse: document.getElementById("branch_refuse").value,
+        branch_conditional: document.getElementById("branch_conditional").value,
+        branch_anti_allin: document.getElementById("branch_anti_allin").value,
+        branch_fallback_map: fm,
+        cons_buy_words: document.getElementById("cons_buy_words").value,
+        cons_cond_words: document.getElementById("cons_cond_words").value,
+        cons_negators: document.getElementById("cons_negators").value,
+        cons_neg_phrases: document.getElementById("cons_neg_phrases").value,
+        asset_story: document.getElementById("asset_story").value,
+        asset_relationships: document.getElementById("asset_relationships").value,
+        asset_maze: document.getElementById("asset_maze").value,
+        asset_agents: document.getElementById("asset_agents").value,
+        asset_governance: document.getElementById("asset_governance").value,
+        custom_yaml: document.getElementById("custom_yaml").value,
+    };
+}
+function showResult(text, cls){
+    var r=document.getElementById("result"); r.style.display="block";
+    r.className=cls||""; r.textContent=text;
+}
+function preview(){
+    fetch("/api/scenario/preview", {method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(collectForm())})
+    .then(function(res){return res.json();})
+    .then(function(d){
+        if(!d.ok){ showResult(("错误: "+d.errors.join("\n")), ""); return; }
+        var msg="===== scenario.yaml =====\n"+d.yaml+"\n===== 引擎校验 =====\n";
+        if(d.engine_check){ msg+="通过(case_engine schema 校验通过)\n"; }
+        else { msg+="未通过: "+d.errors.join("; ")+"\n"; }
+        msg+="case_engine 可用: "+(d.case_engine_available?"是":"否(退回基础校验)")+"\n";
+        showResult(msg, "");
+    })
+    .catch(function(e){ showResult("请求失败: "+e, ""); });
+}
+function saveScene(){
+    fetch("/api/scenario/save", {method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(collectForm())})
+    .then(function(res){return res.json();})
+    .then(function(d){
+        if(d.ok){ showResult("已保存: "+d.path+"\n\n可直接用 case_engine 运行: python -m case_engine run "+d.case_id, "ok"); }
+        else { showResult("保存失败:\n"+d.errors.join("\n"), "error"); }
+    })
+    .catch(function(e){ showResult("请求失败: "+e, ""); });
+}
+// 默认给一个 assistant 角色行
+addRole();
+</script>
+{% endblock %}

@@ -123,9 +123,9 @@
     </div>
 </div>
 
-<h2>高级 / 自定义(custom 透传)</h2>
-<div class="section">
-    <label>scenario_assets <span class="opt">sandbox-value 场景可填;相对平台根。留空则由 custom YAML 提供</span></label>
+<h2>世界状态(沙盒) <span class="opt">sandbox-value 场景;资产/权重/参数落 world 标准段</span></h2>
+<div class="section" id="sandbox-world-section">
+    <label>场景资产 world.assets <span class="opt">相对平台根;资产/剧情/地图/治理价值权重</span></label>
     <div class="row">
         <div><label class="opt">story</label><input type="text" id="asset_story"></div>
         <div><label class="opt">relationships</label><input type="text" id="asset_relationships"></div>
@@ -133,8 +133,10 @@
         <div><label class="opt">agents</label><input type="text" id="asset_agents"></div>
         <div><label class="opt">governance</label><input type="text" id="asset_governance"></div>
     </div>
-    <label>custom YAML <span class="opt">原样合并进 custom(深合并),可覆盖上面字段</span></label>
-    <textarea id="custom_yaml" style="height:90px;" placeholder="value_tendency:&#10;  governance: {}"></textarea>
+    <label>价值权重 world.value_tendency <span class="opt">JSON:{"governance": {...}, "initial_tendency": {...}}</span></label>
+    <textarea id="custom_value_tendency" style="height:90px;" placeholder='{"governance": {},"initial_tendency": {}}'></textarea>
+    <label>沙盒参数 world.params <span class="opt">JSON:percept/schedule/think/chat 等</span></label>
+    <textarea id="custom_sandbox_params" style="height:60px;" placeholder='{"percept":{"mode":"box"}}'></textarea>
 </div>
 
 <div style="margin-top:20px;">
@@ -222,7 +224,8 @@ function collectForm(){
         asset_maze: document.getElementById("asset_maze").value,
         asset_agents: document.getElementById("asset_agents").value,
         asset_governance: document.getElementById("asset_governance").value,
-        custom_yaml: document.getElementById("custom_yaml").value,
+        custom_value_tendency: document.getElementById("custom_value_tendency").value,
+        custom_sandbox_params: document.getElementById("custom_sandbox_params").value,
     };
 }
 function showResult(text, cls){
@@ -255,5 +258,15 @@ function saveScene(){
 }
 // 默认给一个 assistant 角色行
 addRole();
+// 按 meta.engine 动态显示沙盒世界区块(仅 sandbox-value 需要 assets/params/权重)
+function toggleSandboxWorld(){
+    var sec=document.getElementById("sandbox-world-section");
+    if(!sec) return;
+    var e=document.getElementById("engine").value;
+    sec.style.display=(e==="sandbox-value") ? "" : "none";
+}
+var _engSel=document.getElementById("engine");
+if(_engSel) _engSel.addEventListener("change", toggleSandboxWorld);
+toggleSandboxWorld();
 </script>
 {% endblock %}

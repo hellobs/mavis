@@ -1,8 +1,10 @@
 """scenario_builder — 场景声明(scenario.yaml)的确定性构建与导出。
 
-业务方用结构化表单填写场景(meta/roles/world/branch/consistency/custom),
+业务方用结构化表单填写场景(meta/roles/world/branch/consistency),
 本模块做**确定性映射**(纯表单 → YAML,不做 AI 解析),生成可直接被
-case_engine 加载的 scenario.yaml。
+case_engine 加载的 scenario.yaml。沙盒场景(如 sandbox-value)的资产路径、
+价值权重、沙盒参数统一落在 `world` 标准段(assets/value_tendency/params),
+不产出 custom 逃生舱。
 
 设计原则(与 config_tool 其余模块一致):
 - 单一来源:导出的 YAML 用 case_engine 的 schema 校验(引擎 import 可用时),
@@ -23,8 +25,8 @@ SUPPORTED_ENGINES = {
 
 # meta 内部字段稳定顺序(便于人读/审)
 _META_KEYS = ("case_id", "name", "description", "engine", "start_date", "end_date")
-# 场景资产段(可选;sandbox-value 场景用,相对平台根)
-_CUSTOM_SCENARIO_ASSETS = ("story", "relationships", "maze", "agents", "governance")
+# 场景资产段(可选;sandbox-value 场景用,相对平台根)——写入 world.assets
+_WORLD_SCENARIO_ASSETS = ("story", "relationships", "maze", "agents", "governance")
 
 
 def parse_words(text) -> list:
@@ -121,31 +123,27 @@ def build_scenario(form: dict) -> dict:
         if words:
             consistency[k] = words
 
+    world = {"state_schema": state_schema}
+    # 沙盒标准段(sandbox-value 场景):资产路径/价值权重/沙盒参数统一落 world.
+    #   (不再用 custom 逃生舱 —— 与 case_engine 的 world 标准段契约对齐)
+    assets = {k: _strip(form.get("asset_" + k))
+              for k in _WORLD_SCENARIO_ASSETS if _strip(form.get("asset_" + k))}
+    if assets:
+        world["assets"] = assets
+    vt = _parse_value_json(form.get("custom_value_tendency"))
+    if vt:
+        world["value_tendency"] = vt
+    sp = _parse_value_json(form.get("custom_sandbox_params"))
+    if sp:
+        world["params"] = sp
+
     scenario = {
         "meta": {k: meta[k] for k in _META_KEYS if k in meta},
         "roles": roles,
-        "world": {"state_schema": state_schema},
+        "world": world,
         "branch": branch,
         "consistency": consistency,
     }
-
-    custom = {}
-    raw_custom = _strip(form.get("custom_yaml"))
-    if raw_custom:
-        custom = _merge_custom(custom, raw_custom)
-    # 结构化 custom 段(非 experiment-eval 场景,如 sandbox-value 的资产/参数/权重)
-    assets = {k: _strip(form.get("asset_" + k))
-              for k in _CUSTOM_SCENARIO_ASSETS if _strip(form.get("asset_" + k))}
-    if assets:
-        custom.setdefault("scenario_assets", assets)
-    vt = _parse_value_json(form.get("custom_value_tendency"))
-    if vt:
-        custom["value_tendency"] = vt
-    sp = _parse_value_json(form.get("custom_sandbox_params"))
-    if sp:
-        custom["sandbox_params"] = sp
-    if custom:
-        scenario["custom"] = custom
 
     # 空段删掉,保持 YAML 干净(引擎默认值兜底)
     for sec in list(scenario):
@@ -157,25 +155,6 @@ def build_scenario(form: dict) -> dict:
             "llm": "local", "system_prompt": "", "max_tokens": 2048, "temperature": 0.5,
         }]
     return scenario
-
-
-def _merge_custom(custom: dict, raw_yaml: str) -> dict:
-    import yaml
-    try:
-        data = yaml.safe_load(raw_yaml) or {}
-    except yaml.YAMLError:
-        return custom
-    if isinstance(data, dict):
-        _deep_merge(custom, data)
-    return custom
-
-
-def _deep_merge(base: dict, extra: dict) -> None:
-    for k, v in extra.items():
-        if isinstance(v, dict) and isinstance(base.get(k), dict):
-            _deep_merge(base[k], v)
-        else:
-            base[k] = v
 
 
 def _parse_value_json(value_json) -> dict:

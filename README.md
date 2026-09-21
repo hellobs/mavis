@@ -310,6 +310,13 @@ requires an explicit table `config["idle_text_map"] = {"<old fragment>": "<repla
 (empty by default = nothing is rewritten). Consumers that relied on the previous unconditional
 cleanup must add that map to their agent config.
 
+**Version history**:
+
+- `1.3.0` — always-on idle text becomes a single overridable source (`mavisframework.idle_text`,
+  config keys `idle_text` / `idle_text_map`); no top-level API signature removed.
+- `1.2.1` — absolute `assets_root` resolution fix (root/drive no longer swallowed).
+- `1.2.0` — generic plugin surface + three default-off injection hooks.
+
 **Update flow** (for consumers):
 
 - **Development/collaboration**: install with `pip install -e .`; after this

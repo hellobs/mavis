@@ -238,3 +238,12 @@ config_tool 属于框架仓库,但其产物(角色/关系/剧情)写入平台的
   `mavisframework==X.Y.Z` 后重新安装
 - **版本同步**:平台(Provenance)通过 `requirements.txt` 固定依赖版本;框架仓库
   的 `pyproject.toml` 是版本唯一来源,发布时同步更新
+
+**版本历史**：
+
+- `1.3.0` —— 全天在线角色的空闲文案收敛为单一可覆盖来源（`mavisframework.idle_text`，配置键
+  `idle_text` / `idle_text_map`）；未删除任何顶层 API 签名。迁移：旧的硬编码中文空闲文案清洗改为
+  由 `idle_text_map` 注入，缺省不改写。
+- `1.2.1` —— 修绝对 `assets_root` 解析（不再吞掉根/盘符）。
+- `1.2.0` —— 通用插件面 + 三处默认关闭的注入钩子。
+

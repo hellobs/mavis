@@ -19,6 +19,9 @@ class _Tile:
         self.coord = list(coord)
         self.events = []
         self.address = ["the Ville", "测试区"]
+        # agent_core 恢复路径会筛"可走格"(`tile.collision`);真实 Tile 有这个字段,
+        # 这个假 Tile 原先漏了 → 测试在 AttributeError 上红(2026-09-21 补)
+        self.collision = False
     def get_address(self, *a, **kw):
         if kw.get("as_list"):
             return list(self.address)
@@ -235,10 +238,20 @@ class TestV1ResumeLastAction:
 
 
 class TestNoSleepCleanup:
-    """no_sleep 角色:旧存档残留的中文"空闲待命"(日程段 + 恢复的 action)
-    在 Agent 构造时清洗为英文——否则 resume 后凌晨/睡前段仍显示中文"""
+    """no_sleep 角色:旧存档残留的"空闲待命"(日程段 + 恢复的 action)在 Agent 构造时清洗。
 
-    def _mk_no_sleep_agent(self, with_action=None, daily_schedule=None):
+    2026-09-21 去业务化:替换文案不再是内核字面量 ——
+    - `config["idle_text"]` 决定**写什么**(默认通用英文,场景可覆盖);
+    - `config["idle_text_map"]` 决定**要清洗哪些旧片段**(缺省空 = 不改写,内核零案例措辞)。
+    场景(如 case01)把中文旧片段写进 map,行为与之前一致;内核自己不认识这些词。
+    """
+
+    # 案例侧会提供的清洗表(测试里由 helper 注入,模拟场景配置)
+    IDLE_MAP = {"空闲待命": "Idle standby, staying online, no user inquiries",
+                "无用户咨询": "Idle standby, staying online, no user inquiries"}
+
+    def _mk_no_sleep_agent(self, with_action=None, daily_schedule=None,
+                           idle_text_map=None, idle_text=None):
         cfg = {
             "name": "测试人",
             "currently": "x",
@@ -254,7 +267,11 @@ class TestNoSleepCleanup:
             "storage_root": "",
             "role_type": "user",
             "no_sleep": True,
+            # 案例侧提供清洗表(默认用类属性,便于"不给表"的对照测试传 {})
+            "idle_text_map": self.IDLE_MAP if idle_text_map is None else idle_text_map,
         }
+        if idle_text:
+            cfg["idle_text"] = idle_text
         if with_action:
             cfg["action"] = with_action
         return Agent(cfg, _Maze(), {}, timer=_Timer())
@@ -283,7 +300,7 @@ class TestNoSleepCleanup:
         assert agent.action.obj_event.object == "idle and waiting"
 
     def test_schedule_chinese_idle_cleaned(self):
-        # daily_schedule 中的中文"空闲待命"段在构造时清洗为英文
+        # daily_schedule 中的中文"空闲待命"段在构造时清洗(替换文案来自 idle_text/默认值)
         agent = self._mk_no_sleep_agent(daily_schedule=[
             {"describe": "空闲待命,保持在线,无用户咨询", "decompose": []},
             {"describe": "Go to sleep at 23:00", "decompose": []},
@@ -293,6 +310,22 @@ class TestNoSleepCleanup:
         assert descs[0] == "Idle standby, staying online, no user inquiries"  # 中文待命→英文
         assert descs[1] == "Idle standby, staying online, no user inquiries"  # sleep 段→英文
         assert descs[2] == "Walks to the market news station"                 # 正常英文不动
+
+    def test_no_map_means_no_rewrite_core_has_no_case_words(self):
+        """**内核零案例措辞**的回归:不给 `idle_text_map` 时,内核一个字都不改。
+
+        (以前内核写死了"空闲待命/无用户咨询"这两个具体片段 —— 那是案例词汇长在框架里。
+         现在清洗表由场景提供;内核只认表,不认识词。)
+        """
+        agent = self._mk_no_sleep_agent(idle_text_map={}, daily_schedule=[
+            {"describe": "空闲待命,保持在线,无用户咨询", "decompose": []},
+        ])
+        assert agent.schedule.daily_schedule[0]["describe"] == "空闲待命,保持在线,无用户咨询"
+
+    def test_idle_text_is_overridable_by_scenario(self):
+        """写什么由场景定:config["idle_text"] 覆盖默认文案(要中文也行)。"""
+        agent = self._mk_no_sleep_agent(idle_text="待命中(全天在线)")
+        assert agent.idle_text == "待命中(全天在线)"
 
     def test_user_without_no_sleep_not_cleaned(self):
         # 非 no_sleep 角色(user 但未配置)不应被清洗(保持人设作息)

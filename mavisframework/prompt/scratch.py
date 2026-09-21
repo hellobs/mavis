@@ -200,8 +200,15 @@ class Scratch:
         # 永不被执行;也防止时区场景下角色被排进"睡觉"。
         no_sleep = getattr(getattr(self, "agent", None), "no_sleep", False)
         if no_sleep and wake_up == 0:
+            # "空闲"文案走统一来源(默认通用英文,场景可用 config["idle_text"] 覆盖):
+            # 之前这里与 core 各写一份、其中一处还是中文,是案例措辞长在框架里的典型
+            # (2026-09-21 去业务化)
+            from mavisframework.idle_text import resolve_idle_text
+
+            _idle = resolve_idle_text(agent=getattr(self, "agent", None),
+                                      config=getattr(self, "config", None))
             for i in range(9):
-                hourly_schedule += f"[{i}:00] Idle standby, staying online, no user inquiries\n"
+                hourly_schedule += f"[{i}:00] {_idle}\n"
             for i in range(9, 24):
                 hourly_schedule += f"[{i}:00] <activity>\n"
         else:

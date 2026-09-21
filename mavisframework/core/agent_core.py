@@ -147,19 +147,36 @@ class Agent:
         # 是否全天在线不睡觉:ai_tool 天然如此;user 角色可通过配置开启
         # (全球时区场景:投资顾问分布在多个时区,模拟时间下需保持清醒)
         self.no_sleep: bool = bool(config.get("no_sleep", False)) or self.role_type == "ai_tool"
-        # 全天在线角色:清洗续跑恢复的旧日程中残留的"睡觉"段
-        # (旧存档在 no_sleep 引入前生成,日程里仍有睡觉计划;新日程不会产生。
-        #  替换文本必须英文——睡前段(如 22:00)当天会被执行,中文会污染行动流。
-        #  兼容:早期版本把 sleep 段替换成了中文"空闲待命",旧存档里已固化,
-        #  此处一并清洗为英文,避免 resume 后行动描述仍中文)
+        # 全天在线角色的"空闲"文案:默认通用英文,场景可用 config["idle_text"] 覆盖。
+        # 内核不带任何案例措辞(2026-09-21 去业务化;原先这里写死中文"空闲待命,
+        # 保持在线,无用户咨询",而 prompt 侧写的是英文,两边不一致才需要下面的兼容清洗)。
+        from mavisframework.idle_text import resolve_idle_text
+
+        self.idle_text: str = resolve_idle_text(config=config)
+        # 旧存档里的**案例专属旧文案**清洗表:由调用方给,内核只认表不认词
+        # (格式 {"<旧片段>": "<替换文本>"};命中即整段替换,与旧行为一致)
+        _idle_map = config.get("idle_text_map") or {}
+        if not isinstance(_idle_map, dict):
+            _idle_map = {}
+
+        def _clean_legacy_idle(text: str) -> str:
+            """按调用方给的表清洗旧文案;表为空 → 原样返回(内核零案例措辞)。"""
+            t = str(text or "")
+            for _old, _new in _idle_map.items():
+                if _old and _old in t:
+                    return str(_new)
+            return t
+
+        # 全天在线角色:清洗续跑恢复的旧日程中残留的"睡觉"段(**框架规则**,与案例无关:
+        # 常驻在线的角色不该有睡觉段;旧存档在 no_sleep 引入前生成,日程里仍有睡觉计划)。
+        # 写什么走 self.idle_text;原先这里还写死了中文"空闲待命"这种案例词,已去掉。
         if self.no_sleep:
             for _plan in getattr(self.schedule, "daily_schedule", []) or []:
-                _desc = str(_plan.get("describe", "") or "")
-                if ("睡" in _desc or "sleep" in _desc.lower()
-                        or "空闲待命" in _desc):
-                    _plan["describe"] = "Idle standby, staying online, no user inquiries"
+                _desc = _clean_legacy_idle(_plan.get("describe", ""))
+                if "睡" in _desc or "sleep" in _desc.lower() or _desc != _plan.get("describe", ""):
+                    _plan["describe"] = self.idle_text
                     for _dp in _plan.get("decompose", []) or []:
-                        _dp["describe"] = "Idle standby, staying online, no user inquiries"
+                        _dp["describe"] = self.idle_text
 
         # prompt
         from mavisframework.prompt import Scratch
@@ -262,22 +279,28 @@ class Agent:
         # action and events
         if "action" in config:
             self.action = Action.from_dict(config["action"])
-            # 全天在线角色:恢复的 action 若仍是旧中文"空闲待命"(早期存档固化),
-            # 替换为英文——否则 resume 后正执行的段(如凌晨/睡前)仍显示中文
-            if self.no_sleep:
+            # 全天在线角色恢复出来的 action,可能要按调用方给的表做**整段替换**(例如旧存档
+            # 里固化的案例专属文案)。**内核不认识任何具体措辞**:表由
+            # `config["idle_text_map"] = {"<旧片段>": "<替换文本>"}` 提供,缺省为空 = 不改写
+            # —— mavis 保持零业务词(2026-09-21 去业务化)。
+            if self.no_sleep and _idle_map:
                 for _ev in ("event", "obj_event"):
                     _d = getattr(self.action, _ev, None)
                     if _d is None:
                         continue
                     # Event 的描述存私有 _describe(describe 是构造参数非属性)
-                    for _attr, _f in (("_describe", "describe"), ("object", "object"), ("emoji", "emoji")):
+                    for _attr in ("_describe", "object", "emoji"):
                         _txt = str(getattr(_d, _attr, "") or "")
-                        if "空闲待命" in _txt or "无用户咨询" in _txt:
+                        _new = _clean_legacy_idle(_txt)
+                        if _new != _txt:
                             try:
-                                setattr(_d, _attr, "Idle standby, staying online, no user inquiries")
+                                setattr(_d, _attr, _new)
                             except Exception:
                                 pass
             tiles = self.maze.get_address_tiles(self.get_event().address)
+            walkable = [t for t in tiles if not self.maze.tile_at(t).collision]
+            if walkable:
+                tiles = walkable
             config["coord"] = random.choice(list(tiles))
         else:
             tile = self.maze.tile_at(config["coord"])
@@ -598,6 +621,9 @@ class Agent:
             self.logger.info("{} is going to sleep...".format(self.name))
             address = self.spatial.find_address("睡觉", as_list=True)
             tiles = self.maze.get_address_tiles(address)
+            walkable = [t for t in tiles if not self.maze.tile_at(t).collision]
+            if walkable:
+                tiles = walkable
             coord = random.choice(list(tiles))
             events = self.move(coord)
             self.action = Action(
@@ -725,7 +751,9 @@ class Agent:
                         continue
                     desc = str(schedule.get(hkey) or "")
                     if hh < service_start or "睡" in desc or "sleep" in desc.lower():
-                        schedule[hkey] = "空闲待命,保持在线,无用户咨询"
+                        # 走统一来源(默认通用英文,场景可覆盖);原先这里写死中文,
+                        # 与 prompt 侧不一致,才需要额外做兼容清洗(2026-09-21 去业务化)
+                        schedule[hkey] = self.idle_text
                         _covered += 1
                 self.logger.info(
                     "no_sleep 日程覆盖: 覆盖 {} 段, 时段键样例 {} (service_start={})".format(
@@ -908,6 +936,9 @@ class Agent:
         # filter tile with self event
         def _ignore_target(t_coord):
             if list(t_coord) == list(self.coord):
+                return True
+            if self.maze.tile_at(t_coord).collision:
+                # 目标格是墙:不可作为落点(否则会在墙上/穿墙)
                 return True
             events = self.maze.tile_at(t_coord).get_events()
             if any(e.subject in agents for e in events):

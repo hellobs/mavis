@@ -15,18 +15,61 @@ case_engine 加载的 scenario.yaml。沙盒场景(如 sandbox-value)的资产�
 """
 import json
 import os
+import sys
 
 
-# 引擎 id → 展示名(与 case_engine/engines.py 描述一致;仅表单选项)
-SUPPORTED_ENGINES = {
-    "experiment-eval": "受控实验 / 评估(分支/反思/一致性)",
-    "sandbox-value": "生成式价值权重沙盒(需 mavis)",
-}
+def _load_engine_names() -> dict:
+    """从 case_engine/engines.py 注册表派生引擎展示名(单源);框架不可用时回退字面表。"""
+    fallback = {
+        "experiment-eval": "受控实验 / 评估",
+        "sandbox-value": "生成式价值权重沙盒",
+    }
+    try:
+        from case_engine import engines  # noqa: PLC0415
+        names = {}
+        for eid, meta in engines.ENGINES.items():
+            names[eid] = (meta or {}).get("name") or eid
+        return names or fallback
+    except Exception:  # noqa: BLE001 —— 独立可跑,不把框架仓库锁死进运行依赖
+        return fallback
+
+
+# 引擎 id → 展示名(唯一事实源在 case_engine/engines.py;此处仅为运行期选项派生)
+SUPPORTED_ENGINES = _load_engine_names()
 
 # meta 内部字段稳定顺序(便于人读/审)
 _META_KEYS = ("case_id", "name", "description", "engine", "start_date", "end_date")
 # 场景资产段(可选;sandbox-value 场景用,相对平台根)——写入 world.assets
 _WORLD_SCENARIO_ASSETS = ("story", "relationships", "maze", "agents", "governance")
+
+
+
+def governance_payload(scenario: dict) -> dict:
+    """由 scenario 的 world.value_tendency.governance 生成 governance.json 的内容。
+
+    **单一来源**:优先用引擎的 `value_tendency_plan()["materialize"]`(声明→资产的唯一映射),
+    保证"工具生成的 governance.json"与"引擎落盘的 governance.json"逐字一致;
+    引擎不可用(独立部署/未随仓)时退回本地口径,并在返回值里标出 used_engine=False,
+    调用方可据此提示——不静默换口径。
+    """
+    vt = ((scenario or {}).get("world") or {}).get("value_tendency") or {}
+    gov = dict(vt.get("governance") or {})
+    try:
+        import sys
+
+        from case_engine.config import load as _ce_load, value_tendency_plan
+
+        plat = os.environ.get("CASE_ENGINE_DIR") or os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "provenance",
+            "provenance")
+        plat = os.path.abspath(plat)
+        if os.path.isdir(plat) and plat not in sys.path:
+            sys.path.insert(0, plat)
+        plan = value_tendency_plan(_ce_load(scenario))
+        return {"roles": plan["materialize"]["governance.json"], "used_engine": True}
+    except Exception as exc:  # noqa: BLE001 —— 拿不到引擎就退回本地口径,并如实标记
+        return {"roles": gov, "used_engine": False,
+                "engine_note": "{}: {}".format(type(exc).__name__, exc)}
 
 
 def parse_words(text) -> list:
@@ -130,10 +173,10 @@ def build_scenario(form: dict) -> dict:
               for k in _WORLD_SCENARIO_ASSETS if _strip(form.get("asset_" + k))}
     if assets:
         world["assets"] = assets
-    vt = _parse_value_json(form.get("custom_value_tendency"))
+    vt = _parse_value_json(form.get("value_tendency"))
     if vt:
         world["value_tendency"] = vt
-    sp = _parse_value_json(form.get("custom_sandbox_params"))
+    sp = _parse_value_json(form.get("sandbox_params"))
     if sp:
         world["params"] = sp
 
@@ -145,10 +188,6 @@ def build_scenario(form: dict) -> dict:
         "consistency": consistency,
     }
 
-    # 空段删掉,保持 YAML 干净(引擎默认值兜底)
-    for sec in list(scenario):
-        if sec in ("roles", "branch", "consistency"):
-            continue
     if not scenario["roles"]:
         scenario["roles"] = [{
             "id": "assistant", "display_name": "助手", "type": "ai_tool",

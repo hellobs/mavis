@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import shutil
+import subprocess
 
 # MAVIS 框架包目录(本仓库内,config_tool 与 mavisframework/ 同级)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -21,7 +22,7 @@ sys.path.insert(0, MAVIS_DIR)  # 允许 import mavisframework.*
 sys.path.insert(0, BASE_DIR)   # 允许 import scenario_builder(同目录)
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import uvicorn
@@ -32,6 +33,8 @@ from mavisframework.config.validator import (
 )
 # 场景声明构建器(scenario.yaml 生成;确定性,复用 case_engine schema 校验)
 import scenario_builder
+# 组合(case×engine)注册表:场景=数据,组合=可选择的运行记录(config_tool 编排层)
+import compositions
 # 引擎运行器(运行场景自检;惰性定位 case_engine)
 import engine_runner
 
@@ -66,7 +69,58 @@ SCENARIOS_DIR = os.environ.get(
     "MAVIS_SCENARIOS_DIR",
     os.path.join(_PLATFORM_DIR, "scenarios"),
 )
-MAZE_PATH = os.path.join(VILLAGE_ROOT, "maze.json")
+# 地图默认指向 case00 实际使用的新地图(地址树与运行时一致,替代旧的 village 小图);
+# 旧 village 图仅作兜底,缺省时优先取 case00/scenario/maze.json。
+_CASE00_MAZE = os.path.join(_PLATFORM_DIR, "case00", "scenario", "maze.json")
+_FALLBACK_MAZE = os.path.join(VILLAGE_ROOT, "maze.json")
+MAZE_PATH = os.environ.get(
+    "MAVIS_MAZE_PATH",
+    _CASE00_MAZE if os.path.isfile(_CASE00_MAZE) else _FALLBACK_MAZE,
+)
+
+# ---------------------------------------------------------------------------
+# 5010 实时入口联动(统入口:config_tool 运行组合时把 5010 切到该 case 的实时面)
+# 映射:config_tool 的 case_id(场景) → 平台 live_switch 的 case 键(live 实现)。
+# ---------------------------------------------------------------------------
+LIVE_ENTRY = {"case00_village": "case00", "case01_stock": "case01"}
+LIVE_ENTRY_TITLE = {"case00": "权重/治理面板(live_fastapi)",
+                    "case01": "注入器推演(vizkit)"}
+# 实时服务解释器:live_fastapi 依赖 uvicorn+mavisframework,config_tool 自身常跑在
+# generative_agents_cn(取不到 mavisframework),故切换一律走平台 venv-live
+# (实测 venv-live 能整条链路起 live_fastapi);缺失时兜底用当前解释器。
+_LIVE_PY = os.path.join(_PLATFORM_DIR, ".venv-live", "Scripts", "python.exe")
+if not os.path.isfile(_LIVE_PY):
+    _LIVE_PY = sys.executable
+
+
+def _launch_live(case_id: str) -> dict:
+    """运行组合时,把 5010 切到该 case 的实时面。
+
+    **非阻塞**:live_switch --start 要等端口绑上(最长约 36s),这里 Popen 即返回,
+    不让 /api/run/execute 挂起。切换到 5010 由 live_switch 子进程负责(先停另一 case)。
+    """
+    live_case = LIVE_ENTRY.get(case_id)
+    if not live_case:
+        return {"switched": False,
+                "notice": "场景 {} 无实时入口,5010 不切换".format(case_id)}
+    switch = os.path.join(_PLATFORM_DIR, "live_switch.py")
+    if not os.path.isfile(switch):
+        return {"switched": False, "notice": "未找到 live_switch.py,5010 未切换"}
+    out = os.path.join(os.environ.get("TEMP", _PLATFORM_DIR), "cfg_live_switch.out")
+    err = out + ".err"
+    try:
+        with open(out, "ab") as fo, open(err, "ab") as fe:
+            subprocess.Popen(
+                [_LIVE_PY, switch, "--start", live_case],
+                cwd=_PLATFORM_DIR, stdout=fo, stderr=fe,
+                creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+    except Exception as exc:  # noqa: BLE001 —— 起切换失败只提示,不阻断本次运行
+        return {"switched": False, "notice": "启动 5010 切换失败: {}".format(exc)}
+    return {"switched": True,
+            "comment": "redirect_url = 5010 实时面根路径(async 切换,此字段由前端在 health 就绪后跳转)",
+            "redirect_url": "http://localhost:5010/",
+            "notice": "5010 已切到 {}: http://localhost:5010/".format(
+                LIVE_ENTRY_TITLE[live_case])}
 
 
 def _load_maze():
@@ -74,19 +128,54 @@ def _load_maze():
         return json.load(f)
 
 
+def _load_maze_rel(maze_rel: str):
+    """按相对 provenance 根的地图路径加载;缺声明/文件缺失回退全局地图。"""
+    decl = (maze_rel or "").replace("\\", "/").strip()
+    if decl:
+        cand = os.path.join(_PLATFORM_DIR, decl)
+        if os.path.isfile(cand):
+            try:
+                with open(cand, encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:  # noqa: BLE001 —— 单图解析失败回退,不阻断表单
+                pass
+    return _load_maze()
+
+
+def _maze_addresses(maze) -> list:
+    """从某张地图抽取排序地址树供角色居住区下拉使用(>=2 级且去重)。
+
+    地址**带 world 前缀**(如 "the Ville:Trading Center:Trading Floor"),
+    与 agent.json 的 living_area 及 validator(spatial 前缀校验)一致,
+    避免下拉选出的地址与运行时/校验错位。
+    """
+    world = (maze or {}).get("world", "")
+    out = []
+    for t in (maze or {}).get("tiles", []):
+        a = t.get("address", [])
+        if len(a) < 2:
+            continue
+        full = ([world] + list(a)) if world and a[0] != world else list(a)
+        s = ":".join(full)
+        if s not in out:
+            out.append(s)
+    return sorted(out)
+
+
 # ---------------------------------------------------------------------------
 # 表单 → agent.json 的确定性映射(字段一一对应,不做 AI 解析)
 # ---------------------------------------------------------------------------
-def _auto_coord(living_area: list) -> list:
+def _auto_coord(living_area: list, maze=None) -> list:
     """从地图自动分配该地址下的一个可达坐标(业务方不用填坐标)
 
+    maze 缺省取全局默认地图;场景所选地图不同时传入以免坐标错配。
     匹配规则(按优先级):
     1) 精确:tile.address == living_area(如 living_area 本身就是可达区域)
     2) 包含:tile.address 以 living_area 开头(区域内更深一级 tile,如 资料室:办公桌)
     3) 前缀兜底:living_area 以 tile.address 开头(区域级 tile,如 投资咨询中心)
     world 前缀(如 "the Ville")与 tile address 不对齐,先剥掉再匹配。
     """
-    maze = _load_maze()
+    maze = maze or _load_maze()
     world = maze.get("world", "")
     la = list(living_area)
     if la and la[0] == world:
@@ -111,8 +200,8 @@ def _auto_coord(living_area: list) -> list:
     return [0, 0]
 
 
-def build_agent_json(form: dict) -> dict:
-    """把表单数据映射成 agent.json(按 Schema)"""
+def build_agent_json(form: dict, maze=None) -> dict:
+    """把表单数据映射成 agent.json(按 Schema);maze 用于坐标分配,缺省取全局默认。"""
     scratch = {
         "age": form.get("age", 35),
         "innate": form.get("innate", ""),
@@ -141,7 +230,7 @@ def build_agent_json(form: dict) -> dict:
     agent = {
         "name": form.get("name", ""),
         "role_type": form.get("role_type", "user"),
-        "coord": _auto_coord(living_area),  # 自动分配可达坐标,业务方不填
+        "coord": _auto_coord(living_area, maze=maze),  # 自动分配可达坐标,业务方不填
         "currently": form.get("currently", ""),
         "organization": form.get("organization", ""),
         "duty": {
@@ -235,14 +324,15 @@ def _pick_texture_ref(name: str) -> str:
     return pool_names[idx]
 
 
-def save_agent(business: str, agent_json: dict) -> str:
+def save_agent(business: str, agent_json: dict, agents_root: str = "") -> str:
     # 清理角色名:去掉首尾空白/制表符(Windows 路径不允许制表符等)
     name = str(agent_json.get("name", "")).strip()
     name = "".join(c for c in name if c not in "\t\r\n")
     if not name:
         raise ValueError("角色名不能为空")
     agent_json["name"] = name
-    agent_dir = os.path.join(AGENTS_ROOT, name)
+    agents_root = agents_root or AGENTS_ROOT
+    agent_dir = os.path.join(agents_root, name)
     os.makedirs(agent_dir, exist_ok=True)
 
     # portrait 字段指向贴图路径(相对 frontend/static)
@@ -370,20 +460,10 @@ def _list_agents() -> list:
     return agents
 
 
-@app.get("/", response_class=HTMLResponse)
-async def form_page(request: Request):
-    maze = _load_maze()
-    # 提供给表单的地址选项(业务方下拉选,不用知道技术地址)
-    addresses = []
-    for t in maze.get("tiles", []):
-        a = t.get("address", [])
-        if len(a) >= 2:
-            addr = ":".join(a)
-            if addr not in addresses:
-                addresses.append(addr)
-    return templates.TemplateResponse(
-        request, "form.html", {"addresses": sorted(addresses), "active": "config"}
-    )
+@app.get("/", response_class=RedirectResponse)
+async def index():
+    """收敛为单一作者入口:根路径直入场景创建器(独立角色/关系/剧情页由它承载)。"""
+    return RedirectResponse(url="/scenario")
 
 
 @app.get("/relationships", response_class=HTMLResponse)
@@ -435,14 +515,26 @@ async def agents_page(request: Request):
 async def scenario_page(request: Request):
     """场景创建页:表单 + 已发现场景列表。"""
     scenes = _list_scenarios()
+    try:
+        addresses = _maze_addresses(_load_maze())
+    except Exception:
+        addresses = []
     return templates.TemplateResponse(
         request, "scenario.html",
         {"scene_builder": scenario_builder,
          "scenes": scenes,
          "platform_dir": _PLATFORM_DIR,
          "engines": scenario_builder.SUPPORTED_ENGINES,
+         "maze_candidates": _maze_candidates(),
+         "addresses": addresses,
          "active": "scenario"},
     )
+
+
+@app.get("/scenario/addresses")
+async def scenario_addresses(maze: str = ""):
+    """给定地图相对路径(空=默认全局),返回排序地址树供角色居住区下拉动态跟随所选地图。"""
+    return {"addresses": _maze_addresses(_load_maze_rel(maze))}
 
 
 def _list_scenarios() -> list:
@@ -472,10 +564,128 @@ def _list_scenarios() -> list:
     return out
 
 
+# ---------------------------------------------------------------------------
+# 场景内容自包含(sandbox-value):场景创建器即单一作者入口,保存时把完整保真的
+# 内容资产(agent.json/relationships/story/governance)写进该场景自带的 assets/,
+# world.assets 指向它;roles 由所录角色内容推导,不再在声明层重复录。
+# 独立角色配置/关系/剧情/已配置角色页随之废弃。
+# ---------------------------------------------------------------------------
+def scenario_assets_dir(case_id: str) -> str:
+    """cases/<case_id>/assets/ —— 场景内容资产根(相对 provenance 根的 rel 亦同)。"""
+    return os.path.join(scenario_builder.cases_dir(_PLATFORM_DIR), case_id, "assets")
+
+
+def _slug(name: str) -> str:
+    """display_name → 唯一 id:小写、非字母数字压成下划线;全符号则保留原名。"""
+    import re
+    s = re.sub(r"\W+", "_", name.strip().lower()).strip("_")
+    return s or name.strip()
+
+
+def _engine_roles_from_agents(agents: list) -> list:
+    """由 full-fidelity 角色内容推导引擎可见的 roles 子集(单一来源 = 内容)。"""
+    roles = []
+    for a in agents or []:
+        disp = str(a.get("name") or "").strip()
+        if not disp:
+            continue
+        roles.append({
+            "id": _slug(disp),
+            "display_name": disp,
+            "type": "ai_tool" if a.get("role_type") == "ai_tool" else "user",
+            "llm": "local", "system_prompt": "", "max_tokens": 2048, "temperature": 0.5,
+        })
+    return roles
+
+
+def _write_scenario_content(case_id: str, form: dict) -> dict:
+    """把 sandbox 场景的完整内容资产写进 cases/<case_id>/assets/。
+
+    返回该目录下各资产的 rel 路径(正斜杠,供 world.assets 用);不生成 maze
+    (结构性重资产,由表单复用既有地图路径)。
+    """
+    d = scenario_assets_dir(case_id)
+    os.makedirs(d, exist_ok=True)
+    # 本轮所选地图(空声明→默认),用于角色坐标自动分配,保证坐标落在运行时图内
+    scene_maze = _load_maze_rel((form.get("asset_maze") or "").strip())
+    rel = {
+        "agents": "cases/{}/assets/agents".format(case_id),
+        "story": "cases/{}/assets/story.json".format(case_id),
+        "relationships": "cases/{}/assets/relationships.json".format(case_id),
+        "governance": "cases/{}/assets/governance.json".format(case_id),
+    }
+    # 1) 每个角色 → 完整保真 assets/agents/<name>/agent.json(复用构建+落盘逻辑)
+    #    跳过角色必须**说出来**(2026-09-21 修静默):以前 except: continue 会把角色悄悄丢掉,
+    #    作者以为写进去了、场景里却没有 —— 这里打印原因并累计,调用方可据此提示。
+    skipped_agents = []
+    for a in form.get("agents") or []:
+        try:
+            agent_json = build_agent_json(a, maze=scene_maze)
+            save_agent(case_id, agent_json, agents_root=os.path.join(d, "agents"))
+        except (ValueError, KeyError) as exc:
+            name = (a or {}).get("display_name") or (a or {}).get("id") or "?"
+            skipped_agents.append("{}: {}: {}".format(name, type(exc).__name__, exc))
+            print("[agents] 跳过角色 {}: {}: {}".format(name, type(exc).__name__, exc))
+    # 2) 关系
+    with open(os.path.join(d, "relationships.json"), "w", encoding="utf-8") as f:
+        json.dump({"relations": list(form.get("relationships") or [])},
+                  f, ensure_ascii=False, indent=2)
+    # 3) 剧情
+    with open(os.path.join(d, "story.json"), "w", encoding="utf-8") as f:
+        json.dump({"events": list(form.get("story") or [])},
+                  f, ensure_ascii=False, indent=2)
+    # 4) 制度层价值权重:走**引擎的同一映射**(scenario_builder.governance_payload),
+    #    不再本地再写一份口径;引擎不可用时它会在返回值里标 used_engine=False。
+    _scenario_for_gov = scenario_builder.build_scenario(form)
+    _gov = scenario_builder.governance_payload(_scenario_for_gov)
+    if _gov.get("roles"):
+        with open(os.path.join(d, "governance.json"), "w", encoding="utf-8") as f:
+            json.dump({"roles": _gov["roles"]}, f, ensure_ascii=False, indent=2)
+        if not _gov.get("used_engine"):
+            print("[governance] 引擎不可用,已退回本地口径: {}".format(
+                _gov.get("engine_note", "")))
+    if skipped_agents:
+        rel["skipped_agents"] = skipped_agents
+    return rel
+
+
+def _maze_candidates() -> list:
+    """平台下既有 maze.json 相对路径(供沙盒场景复用地图,结构性重资产不表单生成)。"""
+    out = []
+    for root, dirs, files in os.walk(_PLATFORM_DIR):
+        dirs[:] = [dd for dd in dirs if dd not in (".git", ".venv", ".venv-live",
+                                                   "node_modules", "__pycache__", "dist")]
+        if "maze.json" in files:
+            rel = os.path.relpath(os.path.join(root, "maze.json"), _PLATFORM_DIR) \
+                .replace("\\", "/")
+            if rel not in out:
+                out.append(rel)
+    return sorted(out, key=lambda r: (len(r.split("/")), r))
+
+
+def _sandbox_link(form: dict) -> dict:
+    """sandbox-value 场景:roles 由录入的完整角色内容推导(单一来源)。"""
+    if (form.get("engine") or "") != "sandbox-value":
+        return form
+    out = dict(form)
+    out["roles"] = _engine_roles_from_agents(form.get("agents") or [])
+    return out
+
+
+def _sandbox_world_assets(case_id: str, form: dict, rel: dict) -> dict:
+    """sandbox-value 场景的 world.assets:自包含内容资产 + 复用既有地图(maze)。"""
+    assets = dict(rel)
+    maze = (form.get("asset_maze") or "").strip()
+    if maze:
+        assets["maze"] = maze
+    return assets
+
+
 @app.post("/api/scenario/preview")
 async def scenario_preview(request: Request):
     """接收表单 → 生成 scenario.yaml 文本 + 校验结果(不落盘,供预览/评审)。"""
     form = await request.json()
+    form = _sandbox_link(form)
     try:
         cfg = scenario_builder.build_scenario(form)
     except Exception as exc:  # noqa: BLE001 —— 构建失败给可读错误
@@ -494,18 +704,24 @@ async def scenario_preview(request: Request):
 
 @app.post("/api/scenario/save")
 async def scenario_save(request: Request):
-    """校验通过后把场景写入 cases/<case_id>/scenario.yaml。"""
+    """校验通过后把场景写入 cases/<case_id>/;sandbox-value 场景同时生成完整内容资产。"""
     form = await request.json()
+    form = _sandbox_link(form)
     try:
         cfg = scenario_builder.build_scenario(form)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"ok": False, "errors": ["构建失败: {}".format(exc)]})
+    case_id = (cfg.get("meta") or {}).get("case_id")
+    # sandbox-value:先写完整内容资产,再把 world.assets 指向自包含目录
+    if (form.get("engine") or "") == "sandbox-value":
+        rel = _write_scenario_content(case_id, form)
+        cfg["world"]["assets"] = _sandbox_world_assets(case_id, form, rel)
     ok, errors = scenario_builder.validate_scenario(cfg, _PLATFORM_DIR)
     if not ok:
         return JSONResponse({"ok": False, "errors": errors or ["校验未通过"]})
     path = scenario_builder.save_scenario(_PLATFORM_DIR, cfg)
     return JSONResponse({"ok": True, "path": path,
-                         "case_id": (cfg.get("meta") or {}).get("case_id")})
+                         "case_id": case_id})
 
 
 def _case_engine_available() -> bool:
@@ -514,35 +730,403 @@ def _case_engine_available() -> bool:
     return _os.path.isdir(_os.path.join(_PLATFORM_DIR, "case_engine"))
 
 
+def _engine_catalog() -> dict:
+    """引擎清单(「引擎」页只读展示用)。
+
+    读引擎注册表本身(id/名称/说明/部件),再按发现的场景算"它能跑哪些" ——
+    这里**不做任何配置写操作**:引擎是运行策略,本工具只负责让人看清"现在有哪些、
+    各自能跑什么";配对与运行去「组合」页。
+    """
+    out = {"available": False, "engines": [], "scenarios": []}
+    try:
+        import sys as _sys
+        plat = os.path.abspath(_PLATFORM_DIR)
+        if plat not in _sys.path:
+            _sys.path.insert(0, plat)
+        from case_engine import engines as ce_engines
+        from case_engine.config import load_yaml
+        from case_engine.scenarios import default_cases_root, discover
+    except Exception as exc:  # noqa: BLE001 —— 定位不到就如实说,不假装有
+        out["error"] = "{}: {}".format(type(exc).__name__, exc)
+        return out
+
+    infos = list(discover(default_cases_root()))
+
+    ids = []
+    try:
+        # 用 all_ids()(公开的"全部已注册引擎")—— describe() 无参只给默认引擎,
+        # 照它列会漏掉 sandbox-value
+        ids = list(ce_engines.all_ids())
+    except Exception:  # noqa: BLE001
+        ids = []
+
+    def supported_of(info):
+        try:
+            return list(ce_engines.supported_by(load_yaml(info.path)))
+        except Exception:  # noqa: BLE001
+            return []
+
+    cat = []
+    for eid in ids:
+        try:
+            meta = ce_engines.describe(eid) or {}
+        except Exception:  # noqa: BLE001
+            meta = {}
+        try:
+            comps = list(ce_engines.components(eid) or [])
+        except Exception:  # noqa: BLE001
+            comps = []
+        cat.append({"id": eid,
+                    "name": meta.get("name") or eid,
+                    "summary": meta.get("note") or meta.get("description") or "",
+                    "primitives": meta.get("primitives") or "",
+                    "output": meta.get("output") or "",
+                    "components": comps,
+                    "scenarios": [i.case_id for i in infos if eid in supported_of(i)]})
+    out["available"] = True
+    out["engines"] = cat
+    out["scenarios"] = [{"case_id": i.case_id, "name": i.name,
+                         "engine": getattr(i, "engine", "") or "",
+                         "supported": supported_of(i)} for i in infos]
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 场景加载(反向解析 scenario.yaml → 表单,支撑"已有场景可编辑修改")
+# 映射与 scenario_builder.build_scenario / _write_scenario_content 严格对偶,
+# 保证"存进去的能原样取回来改",不做 AI 推断。
+# ---------------------------------------------------------------------------
+def _join_words(words) -> str:
+    """词表 list → textarea 单行一个词文案(与 parse_words 可逆)。"""
+    if not words:
+        return ""
+    return "\n".join(str(w) for w in words)
+
+
+def _tendency_join(tend: dict) -> str:
+    """initial_tendency dict → 每行"目标:权重"。"""
+    if not tend:
+        return ""
+    return "\n".join("{}:{}".format(k, v) for k, v in tend.items())
+
+
+def _load_scenario_dict(case_id: str) -> dict | None:
+    """读 cases/<case_id>/scenario.yaml 返回原始 dict;不存在返回 None。"""
+    import yaml
+    path = os.path.join(scenario_builder.cases_dir(_PLATFORM_DIR), case_id, "scenario.yaml")
+    if not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _form_from_scenario(case_id: str, data: dict) -> dict:
+    """scenario dict → 场景创建器表单结构(collectForm 对偶)。"""
+    meta = data.get("meta") or {}
+    world = data.get("world") or {}
+    form = {
+        "engine": meta.get("engine", ""),
+        "case_id": meta.get("case_id") or case_id,
+        "name": meta.get("name", ""),
+        "description": meta.get("description", ""),
+        "start_date": meta.get("start_date", ""),
+        "end_date": meta.get("end_date", ""),
+    }
+    # 角色(experiment-eval 手工 roles;沙盒由 agents 内容推导,下面单独装载)
+    roles = []
+    for r in data.get("roles") or []:
+        roles.append({
+            "id": r.get("id", ""),
+            "display_name": r.get("display_name", ""),
+            "type": r.get("type", "ai_tool"),
+            "llm": r.get("llm", "local"),
+            "system_prompt": r.get("system_prompt", ""),
+            "max_tokens": r.get("max_tokens", 2048),
+            "temperature": r.get("temperature", 0.5),
+        })
+    form["roles"] = roles
+    # 世界状态 schema
+    state_schema = []
+    for key, f in (world.get("state_schema") or {}).items():
+        state_schema.append({
+            "field": key,
+            "initial": f.get("initial"),
+            "type": f.get("type", "str"),
+        })
+    form["state_schema"] = state_schema
+    # 分支判定
+    branch = data.get("branch") or {}
+    form["branch_default"] = branch.get("default_branch", "")
+    form["branch_no_buy"] = _join_words(branch.get("no_buy"))
+    form["branch_refuse"] = _join_words(branch.get("refuse"))
+    form["branch_conditional"] = _join_words(branch.get("conditional"))
+    form["branch_anti_allin"] = _join_words(branch.get("anti_allin"))
+    form["branch_fallback_map"] = json.dumps(
+        branch.get("fallback_map") or {}, ensure_ascii=False, indent=4)
+    # 一致性信号
+    cons = data.get("consistency") or {}
+    form["cons_buy_words"] = _join_words(cons.get("buy_words"))
+    form["cons_cond_words"] = _join_words(cons.get("cond_words"))
+    form["cons_negators"] = _join_words(cons.get("negators"))
+    form["cons_neg_phrases"] = _join_words(cons.get("neg_phrases"))
+    # 沙盒标准段 → 表单字段
+    assets = world.get("assets") or {}
+    form["asset_maze"] = assets.get("maze", "")
+    form["value_tendency"] = json.dumps(
+        world.get("value_tendency") or {}, ensure_ascii=False, indent=4)
+    form["sandbox_params"] = json.dumps(
+        world.get("params") or {}, ensure_ascii=False, indent=4)
+    # 沙盒完整内容资产(roles/relationships/story):从 cases/<case_id>/assets 装载
+    form["agents"] = _load_agents_content(case_id, data)
+    form["relationships"] = _load_relations_content(case_id, data)
+    form["story"] = _load_story_content(case_id, data)
+    return form
+
+
+def _asset_abs(data: dict, key: str, case_id: str, default_name: str) -> str:
+    """按 world.assets 声明解析某个资产的真实绝对路径,缺声明回退默认。
+
+    - 声明值是文件路径(如 case00/scenario/relationships.json)→ 返回其绝对路径;
+    - 声明值是目录(如 world.assets.agents = case00/scenario/agents/)→ 返回该目录;
+    - 无声明 → cases/<case_id>/assets/<default_name>;
+    - 声明但文件不存在 → 回退默认(允许 CONFIG 侧尚未落盘的半成品)。
+    """
+    assets = ((data or {}).get("world") or {}).get("assets") or {}
+    decl = str(assets.get(key) or "").strip()
+    if decl:
+        cand = os.path.abspath(os.path.join(_PLATFORM_DIR, decl.replace("\\", "/")))
+        if os.path.isdir(cand) or os.path.isfile(cand) or key == "agents":
+            return cand
+    return os.path.join(scenario_assets_dir(case_id), default_name)
+
+
+def _load_agents_content(case_id: str, data: dict) -> list:
+    """从 agents 资产根(以 world.assets.agents 声明为准)agents/<name>/agent.json 反解析。
+
+    build_agent_json 落盘的字段逐一映射还原(coord/spatial 由后端生成,不要求回填)。
+    找不到资产目录时退回 roles 里能推断的 name(保证 experiment-eval 也能回填)。
+    """
+    agents_root = _asset_abs(data, "agents", case_id, "agents")
+    out = []
+    if os.path.isdir(agents_root):
+        for name in sorted(os.listdir(agents_root)):
+            p = os.path.join(agents_root, name, "agent.json")
+            if not os.path.isfile(p):
+                continue
+            try:
+                with open(p, encoding="utf-8") as f:
+                    a = json.load(f)
+                duty = a.get("duty") or {}
+                spatial = a.get("spatial") or {}
+                addr = spatial.get("address") or {}
+                la = addr.get("living_area") or []
+                scratch = a.get("scratch") or {}
+                out.append({
+                    "name": a.get("name", name),
+                    "role_type": a.get("role_type", "user"),
+                    "organization": a.get("organization", ""),
+                    "living_area": ":".join(la) if isinstance(la, list) else "",
+                    "currently": a.get("currently", ""),
+                    "position": duty.get("position", ""),
+                    "responsibility": "\n".join(duty.get("responsibility") or []),
+                    "authority": "\n".join(duty.get("authority") or []),
+                    "rules": "\n".join(duty.get("rules") or []),
+                    "initial_tendency": _tendency_join(a.get("initial_tendency") or {}),
+                    "age": scratch.get("age", ""),
+                    "innate": scratch.get("innate", ""),
+                    "learned": scratch.get("learned", ""),
+                    "lifestyle": scratch.get("lifestyle", ""),
+                    "daily_plan": scratch.get("daily_plan", ""),
+                })
+            except Exception:  # noqa: BLE001 —— 单个 agent 读取失败不拖垮编辑
+                continue
+    # 沙盒场景但无资产目录时,至少把 roles 对应的 display_name 回填
+    if not out:
+        meta = data.get("meta") or {}
+        if (meta.get("engine") or "") == "sandbox-value":
+            for r in data.get("roles") or []:
+                nm = r.get("display_name") or ""
+                if nm:
+                    out.append({"name": nm, "role_type": "user",
+                                "organization": "", "living_area": "",
+                                "currently": "", "position": "",
+                                "responsibility": "", "authority": "",
+                                "rules": "", "initial_tendency": "",
+                                "age": "", "innate": "", "learned": "",
+                                "lifestyle": "", "daily_plan": ""})
+    return out
+
+
+def _load_relations_content(case_id: str, data: dict) -> list:
+    path = _asset_abs(data, "relationships", case_id, "relationships.json")
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            return list((json.load(f) or {}).get("relations") or [])
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _load_story_content(case_id: str, data: dict) -> list:
+    path = _asset_abs(data, "story", case_id, "story.json")
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            return list((json.load(f) or {}).get("events") or [])
+    except Exception:  # noqa: BLE001
+        return []
+
+
+@app.get("/api/scenario/load")
+async def scenario_load(case_id: str):
+    """按 case_id 读回已有场景,返回可直接回填场景创建器表单的结构。"""
+    case_id = (case_id or "").strip()
+    data = _load_scenario_dict(case_id) if case_id else None
+    if data is None:
+        return JSONResponse({"ok": False, "errors": ["场景不存在: {}".format(case_id)]})
+    return JSONResponse({"ok": True, "form": _form_from_scenario(case_id, data)})
+
+
 # ---------------------------------------------------------------------------
 # 引擎运行器(界面切换跑 case00/case01 自检)
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 组合(case×engine)注册表 —— 场景=数据,组合=可复用的运行记录;运行器直接选组合去跑
+# ---------------------------------------------------------------------------
+def _comps() -> list:
+    return compositions.load()
+
+
+@app.get("/api/compositions")
+async def list_compositions():
+    return JSONResponse({"ok": True, "compositions": _comps()})
+
+
+@app.post("/api/compositions")
+async def create_composition(request: Request):
+    body = await request.json() or {}
+    comps = _comps()
+    new_comps, ok, payload = compositions.create(
+        comps,
+        case_id=body.get("case_id"),
+        engine_id=body.get("engine_id"),
+        name=body.get("name"),
+        description=body.get("description"),
+        platform_dir=_PLATFORM_DIR,
+    )
+    if not ok:
+        return JSONResponse({"ok": False, "errors": payload})
+    compositions.save(new_comps)
+    return JSONResponse({"ok": True, "composition": payload})
+
+
+@app.delete("/api/compositions/{comp_id}")
+async def delete_composition(comp_id: str):
+    comps = _comps()
+    new_comps, removed = compositions.delete(comps, comp_id)
+    if not removed:
+        return JSONResponse({"ok": False, "errors": ["组合不存在: {}".format(comp_id)]})
+    compositions.save(new_comps)
+    return JSONResponse({"ok": True})
+
+
+@app.patch("/api/compositions/{comp_id}")
+async def update_composition(comp_id: str, request: Request):
+    body = await request.json() or {}
+    comps = _comps()
+    action = (body or {}).get("action") or ""
+    if action == "rename":
+        ok, _ = compositions.rename(comps, comp_id, (body or {}).get("name", ""))
+    elif action == "toggle":
+        ok, _ = compositions.set_enabled(
+            comps, comp_id, bool((body or {}).get("enabled")))
+    elif action == "default":
+        c, _ = compositions.set_default(comps, comp_id)
+        ok = c is not None
+    else:
+        return JSONResponse({"ok": False, "errors": ["未知 action: {}".format(action)]})
+    if not ok:
+        return JSONResponse({"ok": False, "errors": ["组合不存在: {}".format(comp_id)]})
+    compositions.save(comps)
+    return JSONResponse({"ok": True})
+
+
 @app.get("/run", response_class=HTMLResponse)
 async def run_page(request: Request):
-    """运行页:场景选择器(case00/case01)+ 引擎 + 受判回答 → 一键运行。"""
+    """运行页 = 「组合」页:列出 scene×engine 的组合记录,点选一个即跑。
+
+    `/composition` 是同一页的正式地址(`/run` 保留兼容);两者都高亮顶栏「组合」。
+    """
     cases = engine_runner.list_cases(_PLATFORM_DIR)
     return templates.TemplateResponse(
         request, "run.html",
         {"cases": cases,
+         "compositions": _comps(),
+         "engine_options": scenario_builder.SUPPORTED_ENGINES,
          "platform_dir": _PLATFORM_DIR,
          "engine_available": _case_engine_available(),
-         "active": "run"},
+         "active": "composition"},
+    )
+
+
+@app.get("/composition", response_class=HTMLResponse)
+async def composition_page(request: Request):
+    """「组合」= 场景 × 引擎(与 /run 同一页)。"""
+    return await run_page(request)
+
+
+@app.get("/engines", response_class=HTMLResponse)
+async def engines_page(request: Request):
+    """「引擎」页:只读展示当前可用引擎与它们各自能跑的场景。
+
+    (引擎是运行策略,改它属于框架侧;本页只做展示 + 指路到「组合」页。)
+    """
+    cat = _engine_catalog()
+    return templates.TemplateResponse(
+        request, "engines.html",
+        {"engines": cat.get("engines") or [],
+         "scenarios": cat.get("scenarios") or [],
+         "available": bool(cat.get("available")),
+         "error": cat.get("error", ""),
+         "active": "engines"},
     )
 
 
 @app.post("/api/run/execute")
 async def run_execute(request: Request):
-    """执行引擎运行;返回结构化结果(含 run_type/branch/consistency/timeline)。"""
+    """执行一次运行。优先用「组合记录」(composition_id);否则按 case_id+engine_id 临时跑。
+
+    - composition_id 提供:取组合记录 → case/engine,并校验记录 enabled;
+    - 否则沿用传入的 case_id+engine_id(允许临时试跑未登记组合)。
+    """
     body = await request.json()
+    comp_id = str((body or {}).get("composition_id") or "").strip()
     case_id = str((body or {}).get("case_id") or "").strip()
     engine_id = str((body or {}).get("engine_id") or "").strip()
     input_text = str((body or {}).get("input_text") or "").strip()
+    if comp_id:
+        c = compositions.find(_comps(), comp_id)
+        if c is None:
+            return JSONResponse({"ok": False, "errors": [
+                "组合不存在: {};请先在组合列表创建".format(comp_id)],
+                "case_id": "", "engine_used": ""})
+        if not c.get("enabled", True):
+            return JSONResponse({"ok": False, "errors": [
+                "组合已禁用: {}".format(c.get("name"))],
+                "case_id": c.get("case_id"), "engine_used": c.get("engine_id")})
+        case_id = str(c.get("case_id") or "")
+        engine_id = str(c.get("engine_id") or "")
     if not case_id:
-        return JSONResponse({"ok": False, "errors": ["case_id 必填"]})
+        return JSONResponse({"ok": False, "errors": ["case_id 必填(或提供组合折叠的 composition_id)"]})
     ok, summary, errors = engine_runner.run_case(
         _PLATFORM_DIR, case_id, engine_id=engine_id, input_text=input_text)
+    # 联动 5010:运行组合即把实时入口切到该 case(非阻塞;case00 首页=小镇+治理面板,case01=小镇+结果)
+    live = _launch_live(case_id)
     return JSONResponse({"ok": ok, "summary": summary, "errors": errors,
-                         "case_id": case_id, "engine_used": summary.get("_engine_id", "")})
+                         "case_id": case_id, "engine_used": summary.get("_engine_id", ""),
+                         "live": live})
 
 
 @app.post("/api/generate")

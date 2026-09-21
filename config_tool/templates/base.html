@@ -5,7 +5,7 @@
 <title>{% block title %}MAVIS 配置工具{% endblock %}</title>
 <style>
 body { font-family: "Microsoft YaHei", sans-serif; background: #fafafa; color: #222; margin: 0; padding: 24px; }
-.container { max-width: 760px; margin: 0 auto; background: #fff; border: 1px solid #ddd; padding: 28px 36px; }
+.container { max-width: 1080px; margin: 0 auto; background: #fff; border: 1px solid #ddd; padding: 28px 36px; }
 h1 { font-size: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; margin-top: 0; }
 h2 { font-size: 15px; margin: 28px 0 10px; color: #333; }
 .section { border: 1px solid #e0e0e0; padding: 16px 20px; margin-bottom: 20px; }
@@ -26,13 +26,34 @@ button:hover { background: #555; }
 .del-btn { margin: 0; padding: 3px 10px; background: #e57373; color: #fff;
     border: none; font-size: 12px; cursor: pointer; border-radius: 2px;
     white-space: nowrap; }
+.edit-btn { margin: 0; padding: 3px 10px; background: #2d6cdf; color: #fff;
+    border: none; font-size: 12px; cursor: pointer; border-radius: 2px;
+    white-space: nowrap; }
+.edit-btn:hover { background: #4a86e8; }
 .del-btn:hover { background: #ef9a9a; }
 .del-agent { margin: 0; padding: 5px 14px; font-size: 12px; }
+.sbx-card { border: 1px solid #e0e0e0; margin: 0 0 10px; background: #fcfcfc; }
+.sbx-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    cursor: pointer; user-select: none; }
+.sbx-head:hover { background: #f2f2f2; }
+.sbx-head-title { font-weight: bold; color: #333; white-space: nowrap; }
+.sbx-head-name { color: #666; flex: 1; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-size: 13px; }
+.sbx-head-toggle { color: #999; font-size: 12px; white-space: nowrap; }
+.sbx-body { padding: 12px 14px; border-top: 1px solid #eee; }
+.sbx-body.sbx-collapsed { display: none; }
+#draft-banner { background: #e8f0fe; border: 1px solid #8ab0e6; padding: 10px 14px;
+    margin-bottom: 16px; font-size: 13px; display: flex; align-items: center; gap: 10px;
+    flex-wrap: wrap; }
+#draft-banner span { flex: 1; }
+#draft-banner button { margin: 0; padding: 4px 14px; font-size: 12px; }
 #result, #rel-result, #story-result { margin-top: 16px; font-size: 13px; white-space: pre-wrap; }
 .error { color: #a00; }
 .ok { color: #070; }
 code { background: #f5f5f5; padding: 1px 4px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+.table-scroll { overflow-x: auto; }
+.table-scroll table { min-width: 860px; }
 th { text-align: left; padding: 8px; border: 1px solid #ddd; background: #f0f0f0; }
 td { padding: 8px; border: 1px solid #eee; vertical-align: top; }
 tr.agent-row { cursor: pointer; }
@@ -50,12 +71,9 @@ nav a:hover { color: #333; }
 <body>
 <div class="container">
 <nav>
-    <a href="/" class="{{ 'active' if active == 'config' }}">角色配置</a>
-    <a href="/relationships" class="{{ 'active' if active == 'relationships' }}">关系录入</a>
-    <a href="/story" class="{{ 'active' if active == 'story' }}">剧情录入</a>
-    <a href="/agents" class="{{ 'active' if active == 'agents' }}">已配置角色</a>
-    <a href="/scenario" class="{{ 'active' if active == 'scenario' }}">场景创建器</a>
-    <a href="/run" class="{{ 'active' if active == 'run' }}">引擎运行器</a>
+    <a href="/scenario" class="{{ 'active' if active == 'scenario' }}">场景</a>
+    <a href="/engines" class="{{ 'active' if active == 'engines' }}">引擎</a>
+    <a href="/composition" class="{{ 'active' if active in ('composition', 'run') }}">组合</a>
     <button type="button" id="export-btn" style="margin:0; padding:4px 14px; font-size:12px; background:#2d6cdf; float:right;">导出配置 (.zip)</button>
 </nav>
 <script>

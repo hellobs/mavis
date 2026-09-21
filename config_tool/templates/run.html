@@ -1,30 +1,54 @@
 {% extends "base.html" %}
-{% block title %}引擎运行器{% endblock %}
+{% block title %}组合 · MAVIS 配置工具{% endblock %}
 {% block content %}
-<h1>引擎运行器</h1>
-<p class="hint">在界面上切换场景与引擎,一键运行自检。case01(受控实验)可真跑返回分支/状态/一致性/时间线;case00(价值沙盒)跑装配预检,需 mavis 环境。</p>
+<h1>组合</h1>
+<p class="hint">场景(case)是数据,引擎是运行策略,<b>组合</b>是二者配对后的一份可复用记录。下表即组合注册表——<b>点选一个组合即可运行</b>;用下方表单登记新的组合(case × engine)。</p>
 
 <div class="section">
-    <label>场景 <span class="req">*</span> <span class="opt">取自 <code>cases/&lt;case_id&gt;/scenario.yaml</code></span></label>
-    <select id="case_id">
-        {% for c in cases %}
-        <option value="{{ c.case_id }}">{{ c.case_id }} {% if c.engine_infer %}(推荐引擎: {{ c.engine_infer }}){% endif %}</option>
-        {% endfor %}
-    </select>
+    <h2 style="margin-top:0;">组合注册表</h2>
+    <div id="comp-empty" class="hint" style="display:none;">尚未登记任何组合;用下方"新建组合"添加第一个。</div>
+    <table id="comp-table" style="display:none;">
+        <tr>
+            <th>名称</th><th>场景 × 引擎</th><th>默认</th><th>状态</th><th style="width:200px;">操作</th>
+        </tr>
+        <tbody id="comp-body"></tbody>
+    </table>
+</div>
 
-    <label>引擎 <span class="opt">留空用场景推荐的默认引擎</span></label>
-    <select id="engine_id">
-        <option value="">场景默认</option>
-        <option value="experiment-eval">experiment-eval(受控实验 / 评估)</option>
-        <option value="sandbox-value">sandbox-value(价值权重沙盒)</option>
-    </select>
-
-    <label>受判对象回答 <span class="opt">experiment-eval 需要;sandbox-value 忽略</span></label>
-    <textarea id="input_text" placeholder="例:我建议分阶段先小规模试点"></textarea>
-
-    <div style="margin-top:14px;">
-        <button type="button" onclick="execRun()">运行自检</button>
+<div class="section">
+    <h2 style="margin-top:0;">新建组合</h2>
+    <div class="row">
+        <div>
+            <label>场景 <span class="req">*</span> <span class="opt">来自 <code>cases/</code> 已声明场景</span></label>
+            <select id="new-case">
+                {% for c in cases %}
+                <option value="{{ c.case_id }}">{{ c.case_id }}{% if c.engine_infer %}(推荐: {{ c.engine_infer }}){% endif %}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>引擎 <span class="req">*</span></label>
+            <select id="new-engine">
+                {% for eid, name in engine_options.items() %}
+                <option value="{{ eid }}">{{ eid }}({{ name }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>组合名 <span class="opt">(选填,默认「场景名 · 引擎名」)</span></label>
+            <input type="text" id="new-name" placeholder="如 产品评审-受控">
+        </div>
     </div>
+    <div style="margin-top:10px;">
+        <button type="button" onclick="createComp()" style="margin:0; padding:8px 24px;">登记组合</button>
+        <span id="comp-msg" style="font-size:12px; margin-left:12px;"></span>
+    </div>
+</div>
+
+<div class="section">
+    <h2 style="margin-top:0;">运行</h2>
+    <label>受判对象回答 <span class="opt">experiment-eval 需要;留空时自动取场景 inputs 样本回答;sandbox-value 忽略</span></label>
+    <textarea id="input_text" placeholder="选填 … 不填则自动用场景内置样本判定分支"></textarea>
 </div>
 
 <div id="result" style="margin-top:18px;"></div>
@@ -32,6 +56,9 @@
 
 {% block scripts %}
 <script>
+var CASES = {
+{% for c in cases %}"{{ c.case_id }}": "{{ c.engine_infer or '' }}",{% endfor %}
+};
 function esc(v){
     if(v === null || v === undefined) return "";
     return String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -41,6 +68,102 @@ function fmt(key, val){
     if(typeof val === "object") return "<pre class='kv'>"+esc(JSON.stringify(val,null,2))+"</pre>";
     return esc(val);
 }
+function reloadComps(){
+    fetch("/api/compositions").then(function(r){return r.json();}).then(function(d){
+        renderComps(d.compositions || []);
+    }).catch(function(){});
+}
+function renderComps(comps){
+    window.ALL_COMPS = comps;
+    var empty = document.getElementById("comp-empty");
+    var table = document.getElementById("comp-table");
+    var tb = document.getElementById("comp-body");
+    tb.innerHTML = "";
+    empty.style.display = comps.length ? "none" : "block";
+    table.style.display = comps.length ? "" : "none";
+    comps.forEach(function(c){
+        var tr = document.createElement("tr");
+        var status = c.enabled ? "启用" : "<span style='color:#c05'>禁用</span>";
+        tr.innerHTML =
+            "<td><b>"+esc(c.name)+"</b>"+(c.description?"<br><span class='opt'>"+esc(c.description)+"</span>":"")+"</td>"+
+            "<td>"+esc(c.case_id)+" × "+esc(c.engine_id)+"</td>"+
+            "<td>"+(c.is_default?"<b>★</b>":"-")+"</td>"+
+            "<td>"+status+"</td>"+
+            "<td style='white-space:nowrap;'>"+
+                "<button class='del-btn' onclick='runComp(\""+esc(c.id)+"\")' style='margin-right:4px;'>运行</button>"+
+                "<button class='del-btn' style='background:#8a8a8a;' onclick='setDefault(\""+esc(c.id)+"\")'>默认</button>"+
+                "<button class='del-btn' style='background:#f0a020;' onclick='toggleComp(\""+esc(c.id)+"\", "+(c.enabled?"false":"true")+")'>"+(c.enabled?"禁用":"启用")+"</button>"+
+                "<button class='del-btn' onclick='deleteComp(\""+esc(c.id)+"\")'>删除</button>"+
+            "</td>";
+        tb.appendChild(tr);
+    });
+}
+function compMsg(t){ document.getElementById("comp-msg").textContent = t; }
+
+// M2:运行成功后轮询 5010 的 /health 直到就绪,再自动跳转到实时面根路径。
+// 用 fetch mode:"no-cors" 作"服务是否上线"探活,避免跨源读响应头,
+// 兼容 5010 未配 CORS 的情形;服务已上线即能连通,未起则 reject。
+function maybeRedirect(base){
+    if(!base) return;
+    var el = document.getElementById("result");
+    var tries = 0, MAX = 12, gap = 2000;
+    var poll = function(){
+        fetch(base.replace(/\/$/,"") + "/health", {mode:"no-cors", cache:"no-store"})
+        .then(function(){ window.location.href = base; })
+        .catch(function(){
+            tries++;
+            if(tries < MAX){ setTimeout(poll, gap); }
+            else{
+                el.insertAdjacentHTML("beforeend",
+                    "<div class='hint'>5010 未在"+(MAX*gap/1000)+"s内就绪,可手动打开 "+
+                    "<a href='"+base+"' target='_blank'>"+base+"</a></div>");
+            }
+        });
+    };
+    el.insertAdjacentHTML("beforeend",
+        "<div class='hint'>运行完成,正在切换到实时面 "+base+" …</div>");
+    poll();
+}
+function createComp(){
+    var case_id = document.getElementById("new-case").value;
+    var engine_id = document.getElementById("new-engine").value;
+    var name = document.getElementById("new-name").value.trim();
+    fetch("/api/compositions", {method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({case_id: case_id, engine_id: engine_id, name: name})})
+    .then(function(r){return r.json();}).then(function(d){
+        compMsg(d.ok ? ("已登记组合: "+(d.composition.name||"")) : ((d.errors||[]).join(" / ")));
+        reloadComps();
+    }).catch(function(){ compMsg("请求失败"); });
+}
+function setDefault(id){
+    fetch("/api/compositions/"+encodeURIComponent(id), {method:"PATCH",
+        headers:{"Content-Type":"application/json"}, body: JSON.stringify({action:"default"})})
+    .then(function(r){return r.json();}).then(function(){ reloadComps(); }).catch(function(){});
+}
+function toggleComp(id, enabled){
+    fetch("/api/compositions/"+encodeURIComponent(id), {method:"PATCH",
+        headers:{"Content-Type":"application/json"}, body: JSON.stringify({action:"toggle", enabled: enabled})})
+    .then(function(r){return r.json();}).then(function(){ reloadComps(); }).catch(function(){});
+}
+function deleteComp(id){
+    if(!confirm("删除该组合记录?")) return;
+    fetch("/api/compositions/"+encodeURIComponent(id), {method:"DELETE"})
+    .then(function(r){return r.json();}).then(function(){ reloadComps(); }).catch(function(){});
+}
+function runComp(compId){
+    var comp = (window.ALL_COMPS||[]).filter(function(c){ return c.id === compId; })[0];
+    // experiment-eval 的"受判对象回答"默认取场景内置样本(inputs.sample_answers),
+    // 文本框只作可选的显式覆盖;留空也能跑,不再强制人工填。
+    var input_text = document.getElementById("input_text").value.trim();
+    fetch("/api/run/execute", {method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+            composition_id: compId,
+            input_text: input_text
+        })})
+    .then(function(r){return r.json();})
+    .then(render)
+    .catch(function(e){ document.getElementById("result").innerHTML="<div class='error'>请求失败: "+esc(e)+"</div>"; });
+}
 function render(res){
     var h = "<h3>"+esc(res.case_id)+" → "+esc(res.engine_used||"?")+"</h3>";
     if(!res.ok){
@@ -48,6 +171,7 @@ function render(res){
         document.getElementById("result").innerHTML=h; return;
     }
     var s = res.summary||{};
+    if(res.live) h += "<div class='hint' style='margin-bottom:10px;'>"+esc(res.live.notice)+"</div>";
     h += "<table class='kv-table'>";
     var rows = [
         ["run_type", s.run_type], ["scenario", s.scenario], ["branch", s.branch],
@@ -61,7 +185,6 @@ function render(res){
         h += "<tr><td class='k'>"+esc(r[0])+"</td><td>"+fmt(r[0], r[1])+"</td></tr>";
     });
     h += "</table>";
-    // 时间线节点(若有)
     if(Array.isArray(s.timeline) && s.timeline.length){
         h += "<h4>时间线节点 ("+s.timeline.length+")</h4><table class='kv-table'><tr><th>日期</th><th>价格($)</th><th>事件数</th><th>交互</th><th>需交互</th></tr>";
         s.timeline.forEach(function(n){
@@ -72,21 +195,12 @@ function render(res){
         });
         h += "</table>";
     }
-    // 未接线引擎提示
     if(/NotImplemented|未接线/.test((s.error)||"")) h += "<div class='hint'>"+esc(s.error)+"</div>";
     document.getElementById("result").innerHTML=h;
+    // M2:运行成功且 5010 已切换 → 就绪后自动跳转实时面
+    if(res.ok && res.live && res.live.redirect_url) maybeRedirect(res.live.redirect_url);
 }
-function execRun(){
-    fetch("/api/run/execute", {method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-            case_id: document.getElementById("case_id").value,
-            engine_id: document.getElementById("engine_id").value,
-            input_text: document.getElementById("input_text").value
-        })})
-    .then(function(r){return r.json();})
-    .then(render)
-    .catch(function(e){ document.getElementById("result").innerHTML="<div class='error'>请求失败: "+esc(e)+"</div>"; });
-}
+reloadComps();
 </script>
 <style>
 .kv-table{border-collapse:collapse; width:100%; margin-top:8px;}

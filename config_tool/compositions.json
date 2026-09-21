@@ -1,0 +1,22 @@
+{
+  "compositions": [
+    {
+      "id": "case00_village::sandbox-value",
+      "case_id": "case00_village",
+      "engine_id": "sandbox-value",
+      "name": "6 角色投资咨询中心 · 生成式价值权重沙盒",
+      "description": "",
+      "enabled": true,
+      "is_default": false
+    },
+    {
+      "id": "case01_stock::experiment-eval",
+      "case_id": "case01_stock",
+      "engine_id": "experiment-eval",
+      "name": "AI 股票投资咨询 · 受控实验 / 评估",
+      "description": "",
+      "enabled": true,
+      "is_default": true
+    }
+  ]
+}

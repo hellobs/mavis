@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}引擎 · MAVIS 配置工具{% endblock %}
+{% block content %}
+<h1>引擎</h1>
+<p class="hint" style="margin-top:-4px;">
+  场景是数据,引擎是运行策略。下面是从引擎注册表读到的当前可用引擎,以及它们各自能跑哪些场景。
+  要把某个场景和某个引擎配成一份可重复使用的运行记录,去「<a href="/composition">组合</a>」页。
+</p>
+
+{% if not available %}
+<div class="section" style="border-color:#e6c200; background:#fffbe6;">
+  读不到引擎注册表(平台侧 <code>case_engine</code> 不在预期位置)。页面其余部分仍可用。
+</div>
+{% else %}
+{% for e in engines %}
+<div class="section">
+  <div style="display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;">
+    <b style="font-size:15px;">{{ e.name }}</b>
+    <span class="hint" style="font-family:Consolas,monospace;">{{ e.id }}</span>
+    {% if e.version %}<span class="hint">v{{ e.version }}</span>{% endif %}
+  </div>
+  {% if e.summary %}<div style="margin-top:6px; font-size:13px; color:#333;">{{ e.summary }}</div>{% endif %}
+  {% if e.primitives %}<div class="hint" style="margin-top:4px;">原语:{{ e.primitives }}</div>{% endif %}
+  {% if e.output %}<div class="hint">产物:{{ e.output }}</div>{% endif %}
+
+  {% if e.components %}
+  <div style="margin-top:10px;">
+    <span class="hint">由这些部件构成:</span>
+    {% for c in e.components %}<code style="margin-right:8px;">{{ c }}</code>{% endfor %}
+  </div>
+  {% endif %}
+
+  <div style="margin-top:10px;">
+    <span class="hint">可跑场景:</span>
+    {% if e.scenarios %}
+      {% for s in e.scenarios %}<span style="margin-right:10px;">{{ s }}</span>{% endfor %}
+    {% else %}
+      <span class="hint">当前没有可用该引擎的场景</span>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+<h2>场景 × 引擎 一览</h2>
+<div class="section">
+  <table style="width:100%; border-collapse:collapse; font-size:13px;">
+    <thead>
+      <tr style="text-align:left; color:#666;">
+        <th style="padding:6px 8px; border-bottom:1px solid #e0e0e0;">场景</th>
+        <th style="padding:6px 8px; border-bottom:1px solid #e0e0e0;">默认引擎</th>
+        <th style="padding:6px 8px; border-bottom:1px solid #e0e0e0;">可用引擎</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in scenarios %}
+      <tr>
+        <td style="padding:6px 8px; border-bottom:1px solid #f2f2f2;">
+          {{ s.name }}<span class="hint" style="margin-left:6px;">{{ s.case_id }}</span>
+        </td>
+        <td style="padding:6px 8px; border-bottom:1px solid #f2f2f2;">{{ s.engine or "—" }}</td>
+        <td style="padding:6px 8px; border-bottom:1px solid #f2f2f2;">
+          {{ s.supported|join(" / ") if s.supported else "—" }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not scenarios %}<div class="hint">没发现场景。</div>{% endif %}
+</div>
+{% endblock %}

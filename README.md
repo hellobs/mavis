@@ -60,11 +60,11 @@ pip install -e .
 
 # Release/pinned version: build wheel and install
 pip install .                          # install from source directly
-python -m build && pip install dist/mavisframework-1.2.1-py3-none-any.whl
+python -m build && pip install dist/mavisframework-1.3.0-py3-none-any.whl
 
 # uv also works (optional; toolchain of your choice)
 # uv pip install -e .
-# uv build && uv pip install dist/mavisframework-1.2.1-py3-none-any.whl
+# uv build && uv pip install dist/mavisframework-1.3.0-py3-none-any.whl
 ```
 
 Runtime dependencies are only `pydantic>=2.0` and `requests>=2.31`; there are
@@ -302,6 +302,13 @@ breaking change requires a major version bump and a migration note here.
 | Breaking API change | 2.0.0 |
 | New feature (backward-compatible) | 1.1.0 |
 | Bug fix (backward-compatible) | 1.0.1 |
+
+**Behavior note (1.3.0)**: the always-on ("no_sleep") idle text is no longer hard-coded in
+the kernel. It now comes from a single source (`mavisframework.idle_text`) and is overridable
+per scenario via `config["idle_text"]`; the legacy cleanup of stored Chinese idle strings
+requires an explicit table `config["idle_text_map"] = {"<old fragment>": "<replacement>"}`
+(empty by default = nothing is rewritten). Consumers that relied on the previous unconditional
+cleanup must add that map to their agent config.
 
 **Update flow** (for consumers):
 

@@ -1,14 +1,22 @@
-"""config_tool.engine_runner 单元测试:界面运行器可定位 case_engine 并切场景运行。"""
+"""config_tool.engine_runner 单元测试:界面运行器可定位引擎并切场景运行。
+
+引擎目录自 2026-09-22 起**只认显式声明**:测试里显式设 CASE_ENGINE_DIR(不再靠探测兄弟目录)。
+"""
 import os
 import sys
 
 CONFIG_TOOL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config_tool")
 sys.path.insert(0, CONFIG_TOOL_DIR)
-import engine_runner  # noqa: E402
 
 PLATFORM_DIR = os.path.join(os.path.dirname(CONFIG_TOOL_DIR), "..", "provenance", "provenance")
 PLATFORM_DIR = os.path.normpath(PLATFORM_DIR)
 CASES_ROOT = os.path.join(PLATFORM_DIR, "cases")
+
+# 测试也走"显式声明"这条唯一路径(缺了它本文件的用例本就该失败,不是静默降级)
+os.environ.setdefault("CASE_ENGINE_DIR", PLATFORM_DIR)
+
+import engine_bridge  # noqa: E402
+import engine_runner  # noqa: E402
 
 
 def _cases_env(root, monkeypatch):
@@ -16,7 +24,9 @@ def _cases_env(root, monkeypatch):
 
 
 def test_case_engine_is_located():
-    assert engine_runner._case_engine_imports(PLATFORM_DIR) is not None
+    st = engine_bridge.status()
+    assert st["available"] is True, st["reason"]
+    assert os.path.normcase(st["dir"]) == os.path.normcase(PLATFORM_DIR)
 
 
 def test_list_cases_finds_case00_and_case01(monkeypatch):

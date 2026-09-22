@@ -9,9 +9,13 @@
 
 {% if not available %}
 <div class="section" style="border-color:#e6c200; background:#fffbe6;">
-  读不到引擎注册表(平台侧 <code>case_engine</code> 不在预期位置)。页面其余部分仍可用。
+  <b>引擎功能不可用:</b>{{ reason or "原因未知" }}<br>
+  引擎位置只由环境变量 <code>CASE_ENGINE_DIR</code> 显式声明(本工具不再探测兄弟目录)。
+  设置它指向引擎包所在目录后重启本工具;在此之前本页与「组合」页的运行功能不可用。
 </div>
 {% else %}
+<div class="hint" style="margin-bottom:10px;">引擎目录:<code>{{ dir }}</code></div>
+{% endif %}
 {% for e in engines %}
 <div class="section">
   <div style="display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;">
@@ -40,7 +44,6 @@
   </div>
 </div>
 {% endfor %}
-{% endif %}
 
 <h2>场景 × 引擎 一览</h2>
 <div class="section">

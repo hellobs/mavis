@@ -15,10 +15,13 @@ import sys
 import shutil
 import subprocess
 
-# MAVIS 框架包目录(本仓库内,config_tool 与 mavisframework/ 同级)
+# MAVIS 框架包所在目录(= 本仓库根,config_tool 与 mavisframework/ 同级)。
+# 注意:要 import 的是包 mavisframework,所以 sys.path 上要放它的**父目录**;
+# 以前放的是 mavisframework/ 自身,只有 "pip 装过 mavisframework" 的环境才碰巧能跑,
+# 源码直跑会 ModuleNotFoundError(2026-09-22 修)。
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MAVIS_DIR = os.path.join(os.path.dirname(BASE_DIR), "mavisframework")
-sys.path.insert(0, MAVIS_DIR)  # 允许 import mavisframework.*
+REPO_DIR = os.path.dirname(BASE_DIR)
+sys.path.insert(0, REPO_DIR)   # 允许 import mavisframework.*
 sys.path.insert(0, BASE_DIR)   # 允许 import scenario_builder(同目录)
 
 from fastapi import FastAPI, Request
@@ -31,52 +34,78 @@ import uvicorn
 from mavisframework.config.validator import (
     validate_agents, validate_relationships, validate_story,
 )
-# 场景声明构建器(scenario.yaml 生成;确定性,复用 case_engine schema 校验)
+# 场景声明构建器(scenario.yaml 生成;确定性,复用引擎 schema 校验)
 import scenario_builder
 # 组合(case×engine)注册表:场景=数据,组合=可选择的运行记录(config_tool 编排层)
 import compositions
-# 引擎运行器(运行场景自检;惰性定位 case_engine)
+# 引擎运行器(运行场景自检;引擎位置与 import 统一走 engine_bridge)
 import engine_runner
+# 与引擎包之间的**唯一接触面**(显式声明 + 可用性状态;见该模块文档)
+import engine_bridge
 
 app = FastAPI(title="MAVIS 角色配置工具")
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 # ---------------------------------------------------------------------------
-# 路径注入(config_tool 属框架,但产物写入平台的前端资源)
-# MAVIS_ASSETS_ROOT   : 平台前端资源根(frontend/static/assets/village)
-# MAVIS_SCENARIOS_DIR : 业务场景目录(scenarios)
-# 默认探测兄弟目录 ../provenance(平台仓库):
-#   优先 ../provenance/provenance(平台代码在仓库子目录),回退 ../provenance(代码在根);
-# 部署时可通过环境变量显式指向平台仓库对应目录。
+# 路径声明(**全部显式,不探测兄弟目录**)
+#
+#   CASE_ENGINE_DIR    : 引擎包所在目录(引擎包目录的父目录)—— engine_bridge 解析
+#   MAVIS_PLATFORM_DIR : 平台仓根(产物落盘、地图、实时入口联动);未设时沿用
+#                        CASE_ENGINE_DIR(平台仓当前布局下二者同为同一目录)
+#   MAVIS_ASSETS_ROOT / MAVIS_SCENARIOS_DIR / MAVIS_MAZE_PATH : 逐项覆盖
+#
+# 未声明时:本工具**照常启动**,引擎/平台相关功能置灰,并在启动日志与页面上
+# 给出可读原因(绝不静默降级、绝不把产物写进当前工作目录)。
 # ---------------------------------------------------------------------------
-def _probe_platform_dir() -> str:
-    """探测平台代码目录:先找含 frontend/ 的子目录,再退到仓库根"""
-    repo = os.path.join(os.path.dirname(os.path.dirname(BASE_DIR)), "provenance")
-    for cand in (
-        os.path.join(repo, "provenance"),   # 平台代码在仓库子目录(当前结构)
-        repo,                               # 平台代码直接在仓库根
-    ):
-        if os.path.isdir(os.path.join(cand, "frontend")):
-            return cand
-    return repo
+def _platform_dir() -> str:
+    """平台根目录:只认显式声明(MAVIS_PLATFORM_DIR → CASE_ENGINE_DIR),不做目录探测。"""
+    for key in ("MAVIS_PLATFORM_DIR", "CASE_ENGINE_DIR"):
+        val = str(os.environ.get(key) or "").strip()
+        if val:
+            return os.path.abspath(val)
+    return ""
 
-_PLATFORM_DIR = _probe_platform_dir()
-VILLAGE_ROOT = os.environ.get(
-    "MAVIS_ASSETS_ROOT",
-    os.path.join(_PLATFORM_DIR, "frontend", "static", "assets", "village"),
-)
-SCENARIOS_DIR = os.environ.get(
-    "MAVIS_SCENARIOS_DIR",
-    os.path.join(_PLATFORM_DIR, "scenarios"),
-)
+
+_PLATFORM_DIR = _platform_dir()
+# 引擎目录**只认 CASE_ENGINE_DIR**(不拿平台根顶替:两者概念不同,可分别部署)
+_ENGINE_DIR = engine_bridge.engine_dir()
+VILLAGE_ROOT = os.environ.get("MAVIS_ASSETS_ROOT") or (
+    os.path.join(_PLATFORM_DIR, "frontend", "static", "assets", "village")
+    if _PLATFORM_DIR else "")
+SCENARIOS_DIR = os.environ.get("MAVIS_SCENARIOS_DIR") or (
+    os.path.join(_PLATFORM_DIR, "scenarios") if _PLATFORM_DIR else "")
 # 地图默认指向 case00 实际使用的新地图(地址树与运行时一致,替代旧的 village 小图);
 # 旧 village 图仅作兜底,缺省时优先取 case00/scenario/maze.json。
-_CASE00_MAZE = os.path.join(_PLATFORM_DIR, "case00", "scenario", "maze.json")
-_FALLBACK_MAZE = os.path.join(VILLAGE_ROOT, "maze.json")
-MAZE_PATH = os.environ.get(
-    "MAVIS_MAZE_PATH",
-    _CASE00_MAZE if os.path.isfile(_CASE00_MAZE) else _FALLBACK_MAZE,
-)
+_CASE00_MAZE = (os.path.join(_PLATFORM_DIR, "case00", "scenario", "maze.json")
+                if _PLATFORM_DIR else "")
+_FALLBACK_MAZE = os.path.join(VILLAGE_ROOT, "maze.json") if VILLAGE_ROOT else ""
+MAZE_PATH = os.environ.get("MAVIS_MAZE_PATH") or (
+    _CASE00_MAZE if _CASE00_MAZE and os.path.isfile(_CASE00_MAZE) else _FALLBACK_MAZE)
+
+
+def runtime_status() -> dict:
+    """引擎 + 平台目录的**实际解析结果**(启动横幅与页面横幅共用,便于人看清现状)。"""
+    st = engine_bridge.status(_ENGINE_DIR)
+    st["env_var"] = engine_bridge.ENV_DIR
+    st["platform"] = _PLATFORM_DIR
+    st["platform_reason"] = "" if _PLATFORM_DIR else (
+        "未声明平台目录:设置 {} 或 MAVIS_PLATFORM_DIR 指向平台仓根;"
+        "在此之前产物无法落盘、地图与实时入口联动不可用".format(engine_bridge.ENV_DIR))
+    return st
+
+
+def _print_startup_banner() -> None:
+    """启动即打印解析结果(成功与失败都可见)。"""
+    print(engine_bridge.banner(_ENGINE_DIR), flush=True)
+    print("[platform] 平台根 = {}".format(_PLATFORM_DIR or "(未声明)"), flush=True)
+    print("[platform] 资源根 = {} ; 场景目录 = {} ; 地图 = {}".format(
+        VILLAGE_ROOT or "(未声明)", SCENARIOS_DIR or "(未声明)",
+        MAZE_PATH or "(未声明)"), flush=True)
+
+
+templates.env.globals["runtime_status"] = runtime_status
+# 启动即打印(任何启动方式都可见:python app.py / uvicorn app:app)
+_print_startup_banner()
 
 # ---------------------------------------------------------------------------
 # 5010 实时入口联动(统入口:config_tool 运行组合时把 5010 切到该 case 的实时面)
@@ -88,8 +117,9 @@ LIVE_ENTRY_TITLE = {"case00": "权重/治理面板(live_fastapi)",
 # 实时服务解释器:live_fastapi 依赖 uvicorn+mavisframework,config_tool 自身常跑在
 # generative_agents_cn(取不到 mavisframework),故切换一律走平台 venv-live
 # (实测 venv-live 能整条链路起 live_fastapi);缺失时兜底用当前解释器。
-_LIVE_PY = os.path.join(_PLATFORM_DIR, ".venv-live", "Scripts", "python.exe")
-if not os.path.isfile(_LIVE_PY):
+_LIVE_PY = (os.path.join(_PLATFORM_DIR, ".venv-live", "Scripts", "python.exe")
+            if _PLATFORM_DIR else "")
+if not _LIVE_PY or not os.path.isfile(_LIVE_PY):
     _LIVE_PY = sys.executable
 
 
@@ -103,6 +133,9 @@ def _launch_live(case_id: str) -> dict:
     if not live_case:
         return {"switched": False,
                 "notice": "场景 {} 无实时入口,5010 不切换".format(case_id)}
+    if not _PLATFORM_DIR:
+        return {"switched": False,
+                "notice": "平台目录未声明,5010 不切换(见启动日志 / 页面横幅)"}
     switch = os.path.join(_PLATFORM_DIR, "live_switch.py")
     if not os.path.isfile(switch):
         return {"switched": False, "notice": "未找到 live_switch.py,5010 未切换"}
@@ -124,21 +157,29 @@ def _launch_live(case_id: str) -> dict:
 
 
 def _load_maze():
+    """加载默认地图;平台目录/地图未声明时**明确报错**(不静默退回空地图)。"""
+    if not MAZE_PATH:
+        raise RuntimeError(
+            "地图不可用:未声明平台目录(设置 {} 或 MAVIS_PLATFORM_DIR,"
+            "或用 MAVIS_MAZE_PATH 直接指向地图文件)".format(engine_bridge.ENV_DIR))
+    if not os.path.isfile(MAZE_PATH):
+        raise RuntimeError("地图文件缺失: {}".format(MAZE_PATH))
     with open(MAZE_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def _load_maze_rel(maze_rel: str):
-    """按相对 provenance 根的地图路径加载;缺声明/文件缺失回退全局地图。"""
+    """按相对平台根的地图路径加载;缺声明/文件缺失回退全局地图(回退亦不静默)。"""
     decl = (maze_rel or "").replace("\\", "/").strip()
-    if decl:
+    if decl and _PLATFORM_DIR:
         cand = os.path.join(_PLATFORM_DIR, decl)
         if os.path.isfile(cand):
             try:
                 with open(cand, encoding="utf-8") as f:
                     return json.load(f)
-            except Exception:  # noqa: BLE001 —— 单图解析失败回退,不阻断表单
-                pass
+            except Exception as exc:  # noqa: BLE001 —— 单图解析失败回退,但不静默
+                print("[maze] 解析失败,回退默认地图: {}: {}".format(
+                    cand, exc), flush=True)
     return _load_maze()
 
 
@@ -509,7 +550,7 @@ async def agents_page(request: Request):
 
 
 # ---------------------------------------------------------------------------
-# 场景创建器(scenario.yaml 生成与落盘;确定性,复用 case_engine schema 校验)
+# 场景创建器(scenario.yaml 生成与落盘;确定性,复用引擎 schema 校验)
 # ---------------------------------------------------------------------------
 @app.get("/scenario", response_class=HTMLResponse)
 async def scenario_page(request: Request):
@@ -534,7 +575,10 @@ async def scenario_page(request: Request):
 @app.get("/scenario/addresses")
 async def scenario_addresses(maze: str = ""):
     """给定地图相对路径(空=默认全局),返回排序地址树供角色居住区下拉动态跟随所选地图。"""
-    return {"addresses": _maze_addresses(_load_maze_rel(maze))}
+    try:
+        return {"addresses": _maze_addresses(_load_maze_rel(maze))}
+    except RuntimeError as exc:  # 地图/平台目录不可用 —— 如实报,不返回空数组假装"这图没地址"
+        return JSONResponse({"addresses": [], "errors": [str(exc)]})
 
 
 def _list_scenarios() -> list:
@@ -571,7 +615,7 @@ def _list_scenarios() -> list:
 # 独立角色配置/关系/剧情/已配置角色页随之废弃。
 # ---------------------------------------------------------------------------
 def scenario_assets_dir(case_id: str) -> str:
-    """cases/<case_id>/assets/ —— 场景内容资产根(相对 provenance 根的 rel 亦同)。"""
+    """cases/<case_id>/assets/ —— 场景内容资产根(相对平台根的 rel 亦同)。"""
     return os.path.join(scenario_builder.cases_dir(_PLATFORM_DIR), case_id, "assets")
 
 
@@ -637,7 +681,7 @@ def _write_scenario_content(case_id: str, form: dict) -> dict:
     # 4) 制度层价值权重:走**引擎的同一映射**(scenario_builder.governance_payload),
     #    不再本地再写一份口径;引擎不可用时它会在返回值里标 used_engine=False。
     _scenario_for_gov = scenario_builder.build_scenario(form)
-    _gov = scenario_builder.governance_payload(_scenario_for_gov)
+    _gov = scenario_builder.governance_payload(_scenario_for_gov, _ENGINE_DIR)
     if _gov.get("roles"):
         with open(os.path.join(d, "governance.json"), "w", encoding="utf-8") as f:
             json.dump({"roles": _gov["roles"]}, f, ensure_ascii=False, indent=2)
@@ -652,6 +696,8 @@ def _write_scenario_content(case_id: str, form: dict) -> dict:
 def _maze_candidates() -> list:
     """平台下既有 maze.json 相对路径(供沙盒场景复用地图,结构性重资产不表单生成)。"""
     out = []
+    if not _PLATFORM_DIR:
+        return out
     for root, dirs, files in os.walk(_PLATFORM_DIR):
         dirs[:] = [dd for dd in dirs if dd not in (".git", ".venv", ".venv-live",
                                                    "node_modules", "__pycache__", "dist")]
@@ -690,14 +736,15 @@ async def scenario_preview(request: Request):
         cfg = scenario_builder.build_scenario(form)
     except Exception as exc:  # noqa: BLE001 —— 构建失败给可读错误
         return JSONResponse({"ok": False, "errors": ["构建失败: {}".format(exc)]})
-    ok, errors = scenario_builder.validate_scenario(cfg, _PLATFORM_DIR)
+    ok, errors = scenario_builder.validate_scenario(cfg, _ENGINE_DIR)
     body = {
         "ok": True,
         "yaml": scenario_builder.dump_scenario_yaml(cfg),
         "case_id": (cfg.get("meta") or {}).get("case_id"),
         "engine_check": ok,
         "errors": errors,
-        "case_engine_available": _case_engine_available(),
+        "engine_available": _engine_available(),
+        "engine_reason": engine_bridge.reason(_ENGINE_DIR),
     }
     return JSONResponse(body)
 
@@ -711,12 +758,19 @@ async def scenario_save(request: Request):
         cfg = scenario_builder.build_scenario(form)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"ok": False, "errors": ["构建失败: {}".format(exc)]})
+    if not scenario_builder.cases_dir(_PLATFORM_DIR):
+        return JSONResponse({"ok": False, "errors": [
+            "场景无处落盘:平台目录未声明({} 或 MAVIS_PLATFORM_DIR),"
+            "或用 CASE_ENGINE_CASES_ROOT 直接指定场景根".format(engine_bridge.ENV_DIR)]})
     case_id = (cfg.get("meta") or {}).get("case_id")
-    # sandbox-value:先写完整内容资产,再把 world.assets 指向自包含目录
-    if (form.get("engine") or "") == "sandbox-value":
-        rel = _write_scenario_content(case_id, form)
-        cfg["world"]["assets"] = _sandbox_world_assets(case_id, form, rel)
-    ok, errors = scenario_builder.validate_scenario(cfg, _PLATFORM_DIR)
+    try:
+        # sandbox-value:先写完整内容资产,再把 world.assets 指向自包含目录
+        if (form.get("engine") or "") == "sandbox-value":
+            rel = _write_scenario_content(case_id, form)
+            cfg["world"]["assets"] = _sandbox_world_assets(case_id, form, rel)
+    except RuntimeError as exc:  # 地图/平台目录不可用等 —— 如实报,不写半成品
+        return JSONResponse({"ok": False, "errors": ["内容资产写入失败: {}".format(exc)]})
+    ok, errors = scenario_builder.validate_scenario(cfg, _ENGINE_DIR)
     if not ok:
         return JSONResponse({"ok": False, "errors": errors or ["校验未通过"]})
     path = scenario_builder.save_scenario(_PLATFORM_DIR, cfg)
@@ -724,10 +778,9 @@ async def scenario_save(request: Request):
                          "case_id": case_id})
 
 
-def _case_engine_available() -> bool:
-    """case_engine 是否可被引擎校验定位(决定校验深度提示)。"""
-    import os as _os
-    return _os.path.isdir(_os.path.join(_PLATFORM_DIR, "case_engine"))
+def _engine_available() -> bool:
+    """引擎是否可用(决定校验深度提示与「组合/引擎」页是否置灰)。"""
+    return engine_bridge.available(_ENGINE_DIR)
 
 
 def _engine_catalog() -> dict:
@@ -736,52 +789,36 @@ def _engine_catalog() -> dict:
     读引擎注册表本身(id/名称/说明/部件),再按发现的场景算"它能跑哪些" ——
     这里**不做任何配置写操作**:引擎是运行策略,本工具只负责让人看清"现在有哪些、
     各自能跑什么";配对与运行去「组合」页。
+
+    引擎接触全部走 engine_bridge;不可用时返回 available=False + **可读原因**。
     """
-    out = {"available": False, "engines": [], "scenarios": []}
-    try:
-        import sys as _sys
-        plat = os.path.abspath(_PLATFORM_DIR)
-        if plat not in _sys.path:
-            _sys.path.insert(0, plat)
-        from case_engine import engines as ce_engines
-        from case_engine.config import load_yaml
-        from case_engine.scenarios import default_cases_root, discover
-    except Exception as exc:  # noqa: BLE001 —— 定位不到就如实说,不假装有
-        out["error"] = "{}: {}".format(type(exc).__name__, exc)
+    st = engine_bridge.status(_ENGINE_DIR)
+    out = {"available": False, "engines": [], "scenarios": [],
+           "reason": st["reason"], "dir": st["dir"]}
+    if not st["available"]:
         return out
 
-    infos = list(discover(default_cases_root()))
-
-    ids = []
-    try:
-        # 用 all_ids()(公开的"全部已注册引擎")—— describe() 无参只给默认引擎,
-        # 照它列会漏掉 sandbox-value
-        ids = list(ce_engines.all_ids())
-    except Exception:  # noqa: BLE001
-        ids = []
+    infos = engine_bridge.discover("", _ENGINE_DIR)
+    # 用 all_ids()(公开的"全部已注册引擎")—— describe() 无参只给默认引擎,
+    # 照它列会漏掉 sandbox-value
+    ids = engine_bridge.engine_ids(_ENGINE_DIR)
 
     def supported_of(info):
         try:
-            return list(ce_engines.supported_by(load_yaml(info.path)))
+            return engine_bridge.supported_by(
+                engine_bridge.load_yaml(info.path, _ENGINE_DIR), _ENGINE_DIR)
         except Exception:  # noqa: BLE001
             return []
 
     cat = []
     for eid in ids:
-        try:
-            meta = ce_engines.describe(eid) or {}
-        except Exception:  # noqa: BLE001
-            meta = {}
-        try:
-            comps = list(ce_engines.components(eid) or [])
-        except Exception:  # noqa: BLE001
-            comps = []
+        meta = engine_bridge.describe(eid, _ENGINE_DIR)
         cat.append({"id": eid,
                     "name": meta.get("name") or eid,
                     "summary": meta.get("note") or meta.get("description") or "",
                     "primitives": meta.get("primitives") or "",
                     "output": meta.get("output") or "",
-                    "components": comps,
+                    "components": engine_bridge.components(eid, _ENGINE_DIR),
                     "scenarios": [i.case_id for i in infos if eid in supported_of(i)]})
     out["available"] = True
     out["engines"] = cat
@@ -813,7 +850,10 @@ def _tendency_join(tend: dict) -> str:
 def _load_scenario_dict(case_id: str) -> dict | None:
     """读 cases/<case_id>/scenario.yaml 返回原始 dict;不存在返回 None。"""
     import yaml
-    path = os.path.join(scenario_builder.cases_dir(_PLATFORM_DIR), case_id, "scenario.yaml")
+    root = scenario_builder.cases_dir(_PLATFORM_DIR)
+    if not root:
+        return None
+    path = os.path.join(root, case_id, "scenario.yaml")
     if not os.path.isfile(path):
         return None
     with open(path, encoding="utf-8") as f:
@@ -1066,7 +1106,7 @@ async def run_page(request: Request):
          "compositions": _comps(),
          "engine_options": scenario_builder.SUPPORTED_ENGINES,
          "platform_dir": _PLATFORM_DIR,
-         "engine_available": _case_engine_available(),
+         "engine_available": _engine_available(),
          "active": "composition"},
     )
 
@@ -1089,7 +1129,8 @@ async def engines_page(request: Request):
         {"engines": cat.get("engines") or [],
          "scenarios": cat.get("scenarios") or [],
          "available": bool(cat.get("available")),
-         "error": cat.get("error", ""),
+         "dir": cat.get("dir", ""),
+         "reason": cat.get("reason", ""),
          "active": "engines"},
     )
 
@@ -1136,10 +1177,12 @@ async def generate(request: Request):
     if not business:
         return JSONResponse({"ok": False, "errors": ["业务名称不能为空"]})
 
-    agent_json = build_agent_json(form)
-
-    # 校验(复用 MAVIS validator)
-    maze = _load_maze()
+    try:
+        agent_json = build_agent_json(form)
+        # 校验(复用 MAVIS validator)
+        maze = _load_maze()
+    except RuntimeError as exc:  # 地图/平台目录不可用 —— 如实报,不写半成品
+        return JSONResponse({"ok": False, "errors": [str(exc)]})
     errors = validate_agents({agent_json["name"]: agent_json}, maze)
     if errors:
         return JSONResponse({"ok": False, "errors": errors})
@@ -1164,7 +1207,7 @@ async def upgrade(request: Request):
         with open(path, "r", encoding="utf-8") as f:
             agent_json = json.load(f)
         return JSONResponse({"ok": True, "path": path, "agent": agent_json})
-    except (FileNotFoundError, ValueError) as e:
+    except (FileNotFoundError, ValueError, RuntimeError) as e:
         return JSONResponse({"ok": False, "errors": [str(e)]})
 
 

@@ -4,14 +4,16 @@
 - 场景 = 数据;引擎 = 运行策略;组合 = 二者配对后的一份可重复使用的记录。
   「组合是组合」:它是独立的一等记录,用户显式创建/命名/启停/设为默认,
   与 case 内部的引擎字段**不强联动**(case 保持纯数据)。
-- 校验:新建组合时校验 场景存在 + 引擎已注册(引擎校验走惰性 import case_engine,
-  定位不到则放宽为引擎 id 非空),保证记录的是"真能去跑"的组合。
+- 校验:新建组合时校验 场景存在 + 引擎已注册(引擎接触走 engine_bridge;
+  引擎不可用时判不了,放宽为引擎 id 非空),保证记录的是"真能去跑"的组合。
 - 唯一键:组合 id = f"{case_id}::{engine_id}",稳定、可读、天然唯一。
 
 数据文件:默认 <config_tool>/compositions.json,可用环境变量 COMPOSITIONS_FILE 覆盖。
 """
 import json
 import os
+
+import engine_bridge
 
 # 组合 id 分隔符(case_id 与 engine_id 均已限制为字母数字/_/-,无撞字)
 KEY_SEP = "::"
@@ -23,25 +25,27 @@ def _file() -> str:
         os.path.dirname(os.path.abspath(__file__)), DEFAULT_FILE)
 
 
-def _engine_is_known(engine_id: str, platform_dir: str) -> bool:
-    """惰性判断引擎是否已注册;case_engine 定位不到则放宽(只要求非空)。"""
-    try:
-        import sys
-        plat = os.path.abspath(platform_dir) if platform_dir else ""
-        if plat and plat not in sys.path:
-            sys.path.insert(0, plat)
-        from case_engine import engines
-        return engines.known(engine_id)
-    except Exception:  # noqa: BLE001 —— 框架不可用时不过度约束
-        return bool(engine_id)
-
-
-def _case_exists(case_id: str, platform_dir: str) -> bool:
-    roots = [os.path.join(platform_dir, "cases")]
+def _cases_roots(platform_dir: str) -> list:
+    """候选场景根:平台目录(若显式声明)+ CASE_ENGINE_CASES_ROOT。"""
+    roots = []
+    if platform_dir:
+        roots.append(os.path.join(platform_dir, "cases"))
     extra = os.environ.get("CASE_ENGINE_CASES_ROOT")
     if extra:
         roots.append(extra)
-    for root in roots:
+    return roots
+
+
+def _engine_is_known(engine_id: str, platform_dir: str = "") -> bool:
+    """判断引擎是否已注册;引擎不可用(判不了)则放宽(只要求非空)。"""
+    names = engine_bridge.engine_names(platform_dir)
+    if not names:
+        return bool(engine_id)
+    return engine_id in names
+
+
+def _case_exists(case_id: str, platform_dir: str) -> bool:
+    for root in _cases_roots(platform_dir):
         if os.path.isfile(os.path.join(root, case_id, "scenario.yaml")):
             return True
     return False
@@ -79,11 +83,7 @@ def _key(case_id: str, engine_id: str) -> str:
 
 def _scenario_title(case_id: str, platform_dir: str = "") -> str:
     """取 scenario.yaml 的 meta.name 作为可读场景名;取不到回退 case_id。"""
-    roots = [os.path.join(platform_dir, "cases")]
-    extra = os.environ.get("CASE_ENGINE_CASES_ROOT")
-    if extra:
-        roots.append(extra)
-    for root in roots:
+    for root in _cases_roots(platform_dir):
         p = os.path.join(root, case_id, "scenario.yaml")
         if not os.path.isfile(p):
             continue
@@ -99,20 +99,9 @@ def _scenario_title(case_id: str, platform_dir: str = "") -> str:
 
 
 def _engine_title(engine_id: str, platform_dir: str = "") -> str:
-    """取 case_engine/engines.py 注册表的展示名(单源);取不到回退 engine_id。"""
-    try:
-        plat = os.path.abspath(platform_dir) if platform_dir else ""
-        import sys
-        if plat and plat not in sys.path:
-            sys.path.insert(0, plat)
-        from case_engine import engines  # noqa: PLC0415
-        info = engines.ENGINES.get(engine_id)
-        name = (info or {}).get("name")
-        if name:
-            return str(name).strip()
-    except Exception:  # noqa: BLE001 —— 框架不可用降级为 engine_id
-        pass
-    return engine_id
+    """取引擎注册表的展示名(单源);取不到回退 engine_id。"""
+    name = engine_bridge.engine_names(platform_dir).get(engine_id)
+    return str(name).strip() if name else engine_id
 
 
 def default_name(case_id: str, engine_id: str, platform_dir: str = "") -> str:

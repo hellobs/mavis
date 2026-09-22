@@ -241,7 +241,8 @@ framework route (FastAPI + WebSocket consuming framework contract messages).
   Business users fill role/duty/goal/relationship/story forms; it produces
   `agent.json` / `relationships.json` / `story.json` validated by this
   framework's validator, written into the Provenance platform's `agents/` and
-  `scenarios/` directories. See `config_tool/README.md`.
+  `scenarios/` directories. Engine access lives in `config_tool/engine_bridge.py`
+  and requires `CASE_ENGINE_DIR`. See `config_tool/README.md`.
 - **`../provenance/tools/tilemap_to_maze.py`** — CLI converter (Tiled map →
   `maze.json`) for the Provenance platform; no external deps. Its output is
   consumed by `mavisframework/scene/maze.py`. See
@@ -269,15 +270,33 @@ config_tool/             # role configuration tool (standalone FastAPI service)
 pyproject.toml           # build config (uv build / uv pip install)
 ```
 
-config_tool belongs to the framework repository, but its outputs
-(roles/relations/story) are written into the platform's frontend assets and
-scenario directories. By default it probes the sibling directory `../provenance`
-(the platform repo, compatible with both layouts where platform code lives in a
-subdirectory or at the repo root); deployment can override via environment
-variables:
+config_tool belongs to the framework repository, but it is a **companion tool for the
+engine side**: it reads the engine registry/schema for validation and self-check runs,
+and its outputs (roles/relations/story/scenarios) are written into the platform's
+frontend assets and scenario directories. Both locations are **declared explicitly**
+(since 2026-09-22 it no longer probes the sibling directory `../provenance`):
 
+- `CASE_ENGINE_DIR` — directory containing the engine package (`case_engine/`). If it is
+  not set the tool still starts, but engine-dependent features (the *Engines* page,
+  *Composition* runs, deep schema validation) are greyed out and the reason is shown on
+  the page and printed at startup — never silently degraded.
+- `MAVIS_PLATFORM_DIR` — platform repo root (output paths, maze, live-entry switching);
+  falls back to `CASE_ENGINE_DIR`.
 - `MAVIS_ASSETS_ROOT` — platform frontend assets root (`frontend/static/assets/village`)
 - `MAVIS_SCENARIOS_DIR` — platform scenario directory (`scenarios`)
+- `MAVIS_MAZE_PATH` — default maze file
+- `CASE_ENGINE_CASES_ROOT` — scenario root (same variable the engine uses)
+
+Startup example (Windows):
+
+```bat
+cd D:\zzr\mavis\config_tool
+set CASE_ENGINE_DIR=D:\zzr\provenance\provenance
+python app.py            :: http://127.0.0.1:8060/
+```
+
+Every engine contact point is consolidated in `config_tool/engine_bridge.py`; the other
+modules only call into it. See `config_tool/README.md`.
 
 ## 11. Status
 

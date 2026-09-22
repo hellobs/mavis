@@ -1,40 +1,69 @@
 # config_tool — MAVIS 角色配置工具
 
-独立于仿真引擎的角色配置生成工具。业务方通过网页表单填写角色/关系/剧情,工具按 MAVIS 的 Schema 生成标准 JSON 配置,经校验后写入引擎加载目录。
+**引擎侧的配套工具**:业务方通过网页表单填写角色/关系/剧情/场景,工具按 MAVIS 的
+Schema 生成标准 JSON/YAML 配置,经校验后写入引擎加载目录。它**需要引擎的配合**——
+引擎注册表与 schema 校验、场景运行自检都来自引擎包;引擎包的位置由环境变量
+`CASE_ENGINE_DIR` **显式声明**(本工具不探测兄弟目录)。不设置也能启动,但引擎相关
+功能(「引擎」页、「组合」页的运行、引擎 schema 深度校验)会**置灰并在页面上给出原因**。
 
 ## 定位
 
-- **独立服务**:不依赖仿真引擎(live_fastapi),只做配置生成
-- **Schema 单一来源**:复用 MAVIS 的 validator,避免双份维护
-- **确定性映射**:表单字段一一对应 JSON,不做 AI 解析(保证配置可靠)
+- **独立服务**:不依赖仿真服务(live_fastapi),只做配置生成与场景编排
+- **Schema 单一来源**:复用 MAVIS 的 validator 与引擎的 scenario schema,避免双份维护
+- **确定性映射**:表单字段一一对应 JSON/YAML,不做 AI 解析(保证配置可靠)
 - **角色/关系/剧情三者独立**:分别录入,互不耦合
+- **显式依赖**:引擎与平台目录只认环境变量声明,找不到就**置灰 + 报原因**,绝不静默降级
 
 ## 启动
 
 ```bash
-# 依赖:fastapi + uvicorn(任意安装了二者的解释器即可)
-# mavisframework 源码在同仓库内,app.py 通过 sys.path 直接引用,无需安装
-# 例(Windows,用平台环境的解释器):
-#   cd config_tool
-#   D:\zzr\provenance\provenance\.venv-live\Scripts\python.exe app.py
-cd config_tool
+# 依赖:fastapi + uvicorn,以及能 import 到 mavisframework(同仓库源码即可)
+# 引擎包位置由 CASE_ENGINE_DIR 显式声明(= 引擎包 case_engine/ 的父目录)
+
+# 例 1(Windows,本机并列仓库布局,引擎功能可用):
+cd D:\zzr\mavis\config_tool
+set CASE_ENGINE_DIR=D:\zzr\provenance\provenance
+python app.py
+
+# 例 2(不设 CASE_ENGINE_DIR):工具照常启动,引擎功能置灰并显示原因
+cd D:\zzr\mavis\config_tool
 python app.py
 ```
 
 服务地址:http://127.0.0.1:8060/
 
+启动时会把**实际解析到的路径**打印在控制台(引擎目录 / 平台根 / 资源根 / 场景目录 / 地图),
+成功与失败都可见:
+
+```
+[engine] 引擎可用:CASE_ENGINE_DIR = D:\zzr\provenance\provenance(来源:参数)
+[platform] 平台根 = D:\zzr\provenance\provenance
+[platform] 资源根 = ...\frontend\static\assets\village ; 场景目录 = ...\scenarios ; 地图 = ...\case00\scenario\maze.json
+```
+
+未设置时:
+
+```
+[engine] 引擎不可用:未设置环境变量 CASE_ENGINE_DIR(引擎相关功能不可用)(...)
+[platform] 平台根 = (未声明)
+```
+
 > 端口说明:8060 专用于 config 工具;5001(live 服务)与 5002(case01 只读数据服务)是平台侧端口,已占用,故本工具常驻 8060 避免冲突。
+>
+> **改了本工具代码后必须重启进程**:模板是每次请求从磁盘读的(会"热更新"),app.py 不会;
+> 只重启模板不重启进程,会出现"模板比进程新"的错配(页面上会有明确横幅提示重启,不会白屏)。
 
 ## 页面
 
-| 路径 | 功能 |
-|---|---|
-| `/` | 角色配置(填表生成新角色) |
-| `/relationships` | 关系录入(追加关系到 relationships.json,可查看/删除) |
-| `/story` | 剧情录入(追加事件到 story.json,可查看/删除) |
-| `/agents` | 已配置角色列表(点开看完整详情,可删除角色) |
+| 路径 | 功能 | 依赖引擎? |
+|---|---|---|
+| `/scenario` | 场景创建器(默认入口;填表 → `scenario.yaml` + 完整内容资产) | 可用时做 schema 深度校验;不可用退回基础校验 |
+| `/engines` | 引擎清单(只读:有哪些引擎、各自能跑哪些场景) | **是**,不可用时置灰并显示原因 |
+| `/composition`(`/run` 兼容) | 组合(场景 × 引擎)登记与运行自检 | **是**,不可用时运行按钮不可用 |
+| `/agents`、`/relationships`、`/story` | 旧版独立录入页(保留兼容) | 否 |
 
 顶部菜单导航,当前页高亮。必填字段标红色 `*`,选填标灰色 `(选填)`。
+引擎/平台目录未声明时,每页顶部会显示黄色横幅说明缺什么、怎么设置(不静默)。
 
 **导出配置**:导航栏右侧"导出配置 (.zip)"按钮(或 `GET /api/export`)把当前所有已配置
 内容打包下载,zip 结构:
@@ -66,12 +95,20 @@ D:\zzr\provenance\provenance\scenarios\investment\relationships.json
 D:\zzr\provenance\provenance\scenarios\investment\story.json
 ```
 
-**路径探测规则**:config_tool 启动时自动探测兄弟目录 `../provenance`(平台仓库),
-优先找含 `frontend/` 的子目录(当前为 `../provenance/provenance/`);找不到时回退仓库根。
-部署时可用环境变量显式指定:
+**路径声明(全部显式,不探测兄弟目录)**:
 
-- `MAVIS_ASSETS_ROOT` — 平台前端资源根(`frontend/static/assets/village`)
-- `MAVIS_SCENARIOS_DIR` — 平台场景目录(`scenarios`)
+| 环境变量 | 含义 | 不设置时 |
+|---|---|---|
+| `CASE_ENGINE_DIR` | **引擎包所在目录**(`case_engine/` 的父目录) | 引擎功能全部置灰,页面显示"引擎功能不可用:未设置 CASE_ENGINE_DIR" |
+| `MAVIS_PLATFORM_DIR` | 平台仓根(产物落盘/地图/实时入口联动) | 沿用 `CASE_ENGINE_DIR`(平台仓当前布局下二者为同一目录) |
+| `MAVIS_ASSETS_ROOT` | 平台前端资源根(`frontend/static/assets/village`) | 由平台根推导 |
+| `MAVIS_SCENARIOS_DIR` | 平台场景目录(`scenarios`) | 由平台根推导 |
+| `MAVIS_MAZE_PATH` | 默认地图文件 | 优先平台根下 `case00/scenario/maze.json`,否则资源根下 `maze.json` |
+| `CASE_ENGINE_CASES_ROOT` | 场景根目录(引擎侧同名变量) | 平台根下 `cases/` |
+
+> 2026-09-22 变更:以前 config_tool 会**探测**兄弟目录 `../provenance` 来定位平台与引擎。
+> 探测靠猜、失败还静默降级,已移除;现在只认上表的显式声明。平台目录未声明时,产物
+> 不会写进当前工作目录 —— 保存接口直接返回可读错误。
 
 **角色产物附加处理**:
 - 自动补 `portrait` 字段,并从贴图池(`agents_pool/`,25 人历史贴图)按角色名哈希映射贴图
@@ -91,6 +128,11 @@ D:\zzr\provenance\provenance\scenarios\investment\story.json
 | `POST /api/story` | 追加一条剧情(必填:time/event_type/content;time 须为 00:00-23:59) |
 | `POST /api/story/delete` | 按 id 删除剧情 |
 | `POST /api/agent/delete` | 按角色名删除角色目录(agent.json + 贴图),防路径穿越 |
+| `POST /api/scenario/preview` | 场景表单 → `scenario.yaml` 文本 + 校验结果(不落盘);返回 `engine_available` / `engine_reason` |
+| `POST /api/scenario/save` | 校验通过后写入 `cases/<case_id>/`;平台目录未声明时返回可读错误 |
+| `GET /api/scenario/load` | 按 case_id 反解析回表单 |
+| `GET\|POST\|PATCH\|DELETE /api/compositions` | 组合(场景 × 引擎)记录的增删改查 |
+| `POST /api/run/execute` | 跑一次组合(引擎不可用时返回 `引擎不可用: <原因>`) |
 
 ## 配置校验
 
@@ -103,15 +145,23 @@ D:\zzr\provenance\provenance\scenarios\investment\story.json
 
 ## 设计说明
 
+- **与引擎的接触面只有一处**:`engine_bridge.py`。引擎包名、`sys.path` 注入、可用性判定
+  与全部引擎调用都收敛在这个模块;`app.py` / `scenario_builder.py` / `engine_runner.py` /
+  `compositions.py` 只调它的函数(2026-09-22 收口,反向依赖引用点 57 → 5,涉及文件 4 → 2)。
+  provenance 侧有棘轮测试 `tests/test_mavis_purity.py::test_config_tool_reverse_dependency_does_not_grow` 盯着只准降。
+- **不允许静默**(与产线铁律一致):引擎不可用 → 页面置灰 + 原因可见;地图缺失 → 接口返回
+  可读错误而不是空数组;`governance.json` 拿不到引擎口径 → 返回值里标 `used_engine=False`。
 - 角色配置是"三层":行为层(人设/关系/剧情)+ 制度层(组织/职责/权限/规则)+ 价值层(人物初始底色 initial_tendency;制度约束 governance.json 由治理面板维护)
 - 关系 → `scenarios/<business>/relationships.json`,剧情 → `scenarios/<business>/story.json`,与角色独立维护
 - 迁移 Unity 时:角色→贴图的映射依赖需在 Unity 端同样处理(读 `texture_ref`)
+- **本工具仍属 mavis 仓**:它对引擎/平台的依赖是**运行期配置**(环境变量声明),不是代码级
+  反向依赖;把工具整体搬进平台仓是更大的动作,需要单独拍板。
 
 ## 相关仓库与工具
 
 | 组件 | 位置 | 说明 |
 |---|---|---|
-| 仿真引擎 | [hellobs/mavis](https://github.com/hellobs/mavis)(本仓库) | mavisframework,本工具依赖其 validator |
-| 演示平台 | [hellobs/provenance](https://github.com/hellobs/provenance) | 本工具产物写入该平台 `agents/`、`scenarios/` |
+| 仿真引擎(内核) | [hellobs/mavis](https://github.com/hellobs/mavis)(本仓库) | `mavisframework`,本工具依赖其 validator |
+| 引擎包 + 演示平台 | [hellobs/provenance](https://github.com/hellobs/provenance) | `CASE_ENGINE_DIR` 指向这里的 `provenance/`(引擎包 `case_engine/` 所在目录);产物写入 `agents/`、`scenarios/` |
 | 地图转换工具 | provenance `tools/tilemap_to_maze.py` | Tiled 地图 → maze.json(换场景用) |
 | Unity 版前端(已冻结) | [hellobs/Multi-Model-AI-Visualization-and-Interactive-Simulation-Platform](https://github.com/hellobs/Multi-Model-AI-Visualization-and-Interactive-Simulation-Platform) | 消费同一 WebSocket 契约,读取 `texture_ref` |

@@ -464,9 +464,10 @@ function preview(){
     .then(function(d){
         if(!d.ok){ showResult(("错误: "+d.errors.join("\n")), ""); return; }
         var msg="===== scenario.yaml =====\n"+d.yaml+"\n===== 引擎校验 =====\n";
-        if(d.engine_check){ msg+="通过(case_engine schema 校验通过)\n"; }
+        if(d.engine_check){ msg+="通过(引擎 schema 校验通过)\n"; }
         else { msg+="未通过: "+d.errors.join("; ")+"\n"; }
-        msg+="case_engine 可用: "+(d.case_engine_available?"是":"否(退回基础校验)")+"\n";
+        if(d.engine_available){ msg+="引擎可用: 是\n"; }
+        else { msg+="引擎不可用: "+(d.engine_reason||"原因未知")+"\n(已退回基础校验:能保存,但不保证能被引擎加载)\n"; }
         showResult(msg, "");
     })
     .catch(function(e){ showResult("请求失败: "+e, ""); });
@@ -478,7 +479,7 @@ function saveScene(){
         body: JSON.stringify(collectForm())})
     .then(function(res){return res.json();})
     .then(function(d){
-        if(d.ok){ showResult("已保存: "+d.path+"\n\n可直接用 case_engine 运行: python -m case_engine run "+d.case_id, "ok"); }
+        if(d.ok){ showResult("已保存: "+d.path+"\n\n可直接用引擎运行: python -m case_engine run "+d.case_id, "ok"); }
         else { showResult("保存失败:\n"+d.errors.join("\n"), "error"); }
     })
     .catch(function(e){ showResult("请求失败: "+e, ""); });

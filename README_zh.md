@@ -207,10 +207,24 @@ config_tool/             # 角色配置工具(独立 FastAPI 服务)
 pyproject.toml           # 包构建配置(uv build / uv pip install)
 ```
 
-config_tool 属于框架仓库,但其产物(角色/关系/剧情)写入平台的前端资源与场景目录。默认探测兄弟目录 `../provenance`(平台仓库,兼容平台代码位于仓库子目录或根目录两种结构);部署时可通过环境变量显式指定:
+config_tool 是**引擎侧的配套工具**:它需要用引擎的注册表与 schema 做校验/运行自检,产物(角色/关系/剧情/场景)写入平台的前端资源与场景目录。引擎与平台的位置**只认显式声明**(2026-09-22 起不再探测兄弟目录 `../provenance`):
 
+- `CASE_ENGINE_DIR` — **引擎包所在目录**(`case_engine/` 的父目录);不设置则工具照常启动,但引擎相关功能(「引擎」页、「组合」页运行、schema 深度校验)置灰并在页面与启动日志里给出原因
+- `MAVIS_PLATFORM_DIR` — 平台仓根(产物落盘/地图/实时入口联动);未设置时沿用 `CASE_ENGINE_DIR`
 - `MAVIS_ASSETS_ROOT` — 平台前端资源根(`frontend/static/assets/village`)
 - `MAVIS_SCENARIOS_DIR` — 平台场景目录(`scenarios`)
+- `MAVIS_MAZE_PATH` — 默认地图文件
+- `CASE_ENGINE_CASES_ROOT` — 场景根目录(引擎侧同名变量)
+
+启动示例(Windows):
+
+```bat
+cd D:\zzr\mavis\config_tool
+set CASE_ENGINE_DIR=D:\zzr\provenance\provenance
+python app.py            :: 服务地址 http://127.0.0.1:8060/
+```
+
+与引擎的全部接触收敛在 `config_tool/engine_bridge.py` 一个模块;其余模块只调它,详见 `config_tool/README.md`。
 
 ## 11. 状态
 

@@ -2,39 +2,34 @@
 
 业务方用结构化表单填写场景(meta/roles/world/branch/consistency),
 本模块做**确定性映射**(纯表单 → YAML,不做 AI 解析),生成可直接被
-case_engine 加载的 scenario.yaml。沙盒场景(如 sandbox-value)的资产路径、
+引擎加载的 scenario.yaml。沙盒场景(如 sandbox-value)的资产路径、
 价值权重、沙盒参数统一落在 `world` 标准段(assets/value_tendency/params),
 不产出 custom 逃生舱。
 
 设计原则(与 config_tool 其余模块一致):
-- 单一来源:导出的 YAML 用 case_engine 的 schema 校验(引擎 import 可用时),
+- 单一来源:导出的 YAML 用引擎的 schema 校验(引擎可用时),
   保证"你能创建的就是引擎能跑的",避免表单与 schema 漂移。
-- 惰性依赖:引擎校验走惰性 import,定位不到 case_engine 时退回基础校验,
-  保证 config_tool 独立可跑(不把框架仓库锁死进运行依赖)。
+- 显式依赖:引擎位置只由 `CASE_ENGINE_DIR` 声明,全部接触走 `engine_bridge`
+  (不再探测兄弟目录、不再各处 sys.path.insert);引擎不可用时退回基础校验,
+  并在返回值里**如实标出**(不静默换口径)。
 - 稳定导出:safe_dump + allow_unicode + 不排序,输出稳定可 diff。
 """
 import json
 import os
-import sys
+
+import engine_bridge
 
 
 def _load_engine_names() -> dict:
-    """从 case_engine/engines.py 注册表派生引擎展示名(单源);框架不可用时回退字面表。"""
+    """引擎展示名(单源 = 引擎注册表);引擎不可用时回退字面表。"""
     fallback = {
         "experiment-eval": "受控实验 / 评估",
         "sandbox-value": "生成式价值权重沙盒",
     }
-    try:
-        from case_engine import engines  # noqa: PLC0415
-        names = {}
-        for eid, meta in engines.ENGINES.items():
-            names[eid] = (meta or {}).get("name") or eid
-        return names or fallback
-    except Exception:  # noqa: BLE001 —— 独立可跑,不把框架仓库锁死进运行依赖
-        return fallback
+    return engine_bridge.engine_names() or fallback
 
 
-# 引擎 id → 展示名(唯一事实源在 case_engine/engines.py;此处仅为运行期选项派生)
+# 引擎 id → 展示名(唯一事实源在引擎注册表;此处仅为运行期选项派生)
 SUPPORTED_ENGINES = _load_engine_names()
 
 # meta 内部字段稳定顺序(便于人读/审)
@@ -44,30 +39,20 @@ _WORLD_SCENARIO_ASSETS = ("story", "relationships", "maze", "agents", "governanc
 
 
 
-def governance_payload(scenario: dict) -> dict:
+def governance_payload(scenario: dict, explicit: str = "") -> dict:
     """由 scenario 的 world.value_tendency.governance 生成 governance.json 的内容。
 
     **单一来源**:优先用引擎的 `value_tendency_plan()["materialize"]`(声明→资产的唯一映射),
     保证"工具生成的 governance.json"与"引擎落盘的 governance.json"逐字一致;
-    引擎不可用(独立部署/未随仓)时退回本地口径,并在返回值里标出 used_engine=False,
-    调用方可据此提示——不静默换口径。
+    引擎不可用(未设置 CASE_ENGINE_DIR / 独立部署)时退回本地口径,并在返回值里标出
+    used_engine=False + engine_note,调用方可据此提示——不静默换口径。
     """
     vt = ((scenario or {}).get("world") or {}).get("value_tendency") or {}
     gov = dict(vt.get("governance") or {})
     try:
-        import sys
-
-        from case_engine.config import load as _ce_load, value_tendency_plan
-
-        plat = os.environ.get("CASE_ENGINE_DIR") or os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "provenance",
-            "provenance")
-        plat = os.path.abspath(plat)
-        if os.path.isdir(plat) and plat not in sys.path:
-            sys.path.insert(0, plat)
-        plan = value_tendency_plan(_ce_load(scenario))
+        plan = engine_bridge.value_tendency_plan(scenario, explicit)
         return {"roles": plan["materialize"]["governance.json"], "used_engine": True}
-    except Exception as exc:  # noqa: BLE001 —— 拿不到引擎就退回本地口径,并如实标记
+    except Exception as exc:  # noqa: BLE001 —— 拿不到计划就退回本地口径,并如实标记
         return {"roles": gov, "used_engine": False,
                 "engine_note": "{}: {}".format(type(exc).__name__, exc)}
 
@@ -168,7 +153,7 @@ def build_scenario(form: dict) -> dict:
 
     world = {"state_schema": state_schema}
     # 沙盒标准段(sandbox-value 场景):资产路径/价值权重/沙盒参数统一落 world.
-    #   (不再用 custom 逃生舱 —— 与 case_engine 的 world 标准段契约对齐)
+    #   (不再用 custom 逃生舱 —— 与引擎的 world 标准段契约对齐)
     assets = {k: _strip(form.get("asset_" + k))
               for k in _WORLD_SCENARIO_ASSETS if _strip(form.get("asset_" + k))}
     if assets:
@@ -220,15 +205,22 @@ def dump_scenario_yaml(cfg: dict) -> str:
 
 
 def cases_dir(platform_dir: str) -> str:
-    """场景根目录:平台 <platform>/cases(与 case_engine 默认一致)。"""
+    """场景根目录:平台 <platform_dir>/cases。
+
+    平台目录(其来源见 app.py 的显式声明)未提供时返回空串 —— 调用方必须据此
+    **明确报错**,而不是把场景写进当前工作目录。
+    """
     return (os.environ.get("CASE_ENGINE_CASES_ROOT")
-            or os.path.join(platform_dir, "cases"))
+            or (os.path.join(platform_dir, "cases") if platform_dir else ""))
 
 
 def save_scenario(platform_dir: str, cfg: dict) -> str:
     """把场景写进 cases/<case_id>/scenario.yaml;返回落盘绝对路径。"""
+    root = cases_dir(platform_dir)
+    if not root:
+        raise ValueError("平台目录未声明,无法落盘场景(见 engine_bridge.banner() 的原因)")
     case_id = (cfg.get("meta") or {}).get("case_id") or "scenario"
-    case_dir = os.path.join(cases_dir(platform_dir), case_id)
+    case_dir = os.path.join(root, case_id)
     os.makedirs(case_dir, exist_ok=True)
     path = os.path.join(case_dir, "scenario.yaml")
     with open(path, "w", encoding="utf-8") as f:
@@ -237,28 +229,13 @@ def save_scenario(platform_dir: str, cfg: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 校验(尽力用 case_engine 的 schema;不可用时只做基础校验)
+# 校验(尽力用引擎的 schema;不可用时只做基础校验)
 # ---------------------------------------------------------------------------
-def _try_import_case_engine(platform_dir: str):
-    """惰性 import case_engine.config;定位不到返回 None(不把 config_tool 锁死)。"""
-    ce_dir = os.path.join(platform_dir, "case_engine")
-    if not os.path.isdir(ce_dir):
-        return None
-    try:
-        import sys
-        plat = os.path.abspath(platform_dir)
-        if plat not in sys.path:
-            sys.path.insert(0, plat)
-        from case_engine.config import load, validate  # noqa: F401
-        return (load, validate)
-    except Exception:
-        return None
-
-
-def validate_scenario(cfg: dict, platform_dir: str):
+def validate_scenario(cfg: dict, platform_dir: str = ""):
     """返回 (ok: bool, errors: list)。ok=False 时 errors 给出可读原因。
 
-    优先用 case_engine 的 Validate 契约;不可用则退回字段级基础校验。
+    `platform_dir` 是**调用方显式声明**的引擎包所在目录(不传则用环境变量);
+    优先用引擎的 Validate 契约;不可用则退回字段级基础校验(并在调用方提示)。
     """
     meta = cfg.get("meta") or {}
     errors = []
@@ -266,18 +243,9 @@ def validate_scenario(cfg: dict, platform_dir: str):
         errors.append("meta.case_id 必填")
     if not cfg.get("roles"):
         errors.append("roles 至少一个")
-    loaded = _try_import_case_engine(platform_dir)
-    if loaded is None:
-        # 基础校验兜底(未定位 case_engine,提示仍可保存但不保证能被引擎加载)
-        if errors:
-            return False, errors
-        return True, []
-    load_fn, validate_fn = loaded
-    try:
-        inst = load_fn(dict(cfg))
-        errs = validate_fn(inst)
-        if errs:
-            errors.extend(errs)
-    except Exception as exc:  # noqa: BLE001 —— 校验失败归一为可读错误,不外抛
-        errors.append("引擎校验异常: {}".format(exc))
+    engine_errors = engine_bridge.validate(cfg, platform_dir)
+    if engine_errors is None:
+        # 引擎不可用:基础校验兜底(仍可保存,但不保证能被引擎加载)
+        return (not errors), errors
+    errors.extend(engine_errors)
     return (not errors), errors

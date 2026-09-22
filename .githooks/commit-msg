@@ -1,0 +1,16 @@
+#!/bin/sh
+# 提交信息守卫:不得出现个人称呼(统一用角色表述:平台侧 / 需求方 / 引擎侧 / 研究侧)。
+# 启用:git config core.hooksPath .githooks
+msg_file="$1"
+bad=""
+for w in 仝牧 陈总 Leo Tongmu tongmu 学姐 ZZR Ruige luohaozhe; do
+  if grep -q "$w" "$msg_file" 2>/dev/null; then
+    bad="$bad $w"
+  fi
+done
+if [ -n "$bad" ]; then
+  echo "提交信息含个人称呼:$bad" >&2
+  echo "请改用角色表述(平台侧 / 需求方 / 引擎侧 / 研究侧),再提交。" >&2
+  exit 1
+fi
+exit 0

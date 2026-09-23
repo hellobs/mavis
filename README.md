@@ -345,3 +345,19 @@ cleanup must add that map to their agent config.
 - **Version sync**: the platform (Provenance) pins the dependency version in
   its `requirements.txt`; `pyproject.toml` in this repo is the single source of
   truth for the version, updated together at each release
+
+## 13. Security (2026-09-23)
+
+`config_tool/` is a **local development tool**, not a service: it writes role/scenario
+files directly and exposes 13 write endpoints (`/api/scenario/save`, `/api/run/execute`,
+`/api/agent/delete`, ...) with **no authentication**. It binds `127.0.0.1` by default —
+do not place it anywhere reachable from a network.
+
+- **Role-name guard**: `_safe_agent_name()` rejects names containing path separators,
+  a colon, or `.`/`..`. Previously `save_agent()` / `upgrade_agent()` only stripped tabs
+  and newlines, so a name like `..\..` could create directories and write `agent.json`
+  **outside** `AGENTS_ROOT` (`delete_agent` already had the guard; these two did not).
+- Engine location is only taken from an explicit `CASE_ENGINE_DIR` (see
+  `tests/test_engine_bridge.py`); sibling directories are never probed.
+- Tests: `tests/test_config_tool_name_guard.py` (including "nothing is written before
+  the name is rejected").

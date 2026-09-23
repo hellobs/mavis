@@ -261,3 +261,15 @@ python app.py            :: 服务地址 http://127.0.0.1:8060/
 - `1.2.1` —— 修绝对 `assets_root` 解析（不再吞掉根/盘符）。
 - `1.2.0` —— 通用插件面 + 三处默认关闭的注入钩子。
 
+## 13. 安全(2026-09-23)
+
+`config_tool/` 是**本机开发工具**,不是对外服务:它按表单直接写角色/场景文件,还有
+`/api/scenario/save`、`/api/run/execute`、`/api/agent/delete` 等 13 个写端点,且**没有鉴权**。
+所以它默认绑 `127.0.0.1`,**不要**把它放进任何对外可访问的网络位置。
+
+- **角色名守卫**:`_safe_agent_name()` —— 角色名不许含路径分隔符、冒号或 `.`/`..`。
+  此前 `save_agent()` / `upgrade_agent()` 只去掉制表符/换行,名字里带 `..\..` 能在
+  `AGENTS_ROOT` 之外建目录并写 `agent.json`(`delete_agent` 早有守卫,这两处漏了)。
+- 引擎位置只认显式 `CASE_ENGINE_DIR`(见 `tests/test_engine_bridge.py`),不探测兄弟目录。
+- 测试:`tests/test_config_tool_name_guard.py`(含"拒绝之前不许落盘"的断言)。
+

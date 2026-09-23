@@ -348,6 +348,22 @@ POOL_ROOT = os.path.join(VILLAGE_ROOT, "agents_pool")
 DEFAULT_TEXTURE_SOURCE = "沈砚之"  # 兜底贴图(池空时用)
 
 
+def _safe_agent_name(name: str) -> str:
+    """角色名守卫:只接受"名字",不接受路径。
+
+    2026-09-23 安全体检发现:`save_agent()` / `upgrade_agent()` 原来只去掉制表符与
+    换行,名字里带 `..\\..` 就能在 AGENTS_ROOT **之外**建目录、写 agent.json
+    (角色名还进 `portrait` 路径)。`delete_agent` 早就有这个守卫,这两处漏了。
+    角色名本来也不该含路径分隔符或冒号。
+    """
+    name = "".join(c for c in str(name or "") if c not in "\t\r\n").strip()
+    if not name:
+        raise ValueError("角色名不能为空")
+    if "/" in name or "\\" in name or ":" in name or name in (".", ".."):
+        raise ValueError("非法的角色名(不能含路径分隔符): {!r}".format(name))
+    return name
+
+
 def _pick_texture_ref(name: str) -> str:
     """从贴图池按角色名哈希选一个贴图来源(确定性映射)
 
@@ -366,11 +382,9 @@ def _pick_texture_ref(name: str) -> str:
 
 
 def save_agent(business: str, agent_json: dict, agents_root: str = "") -> str:
-    # 清理角色名:去掉首尾空白/制表符(Windows 路径不允许制表符等)
-    name = str(agent_json.get("name", "")).strip()
-    name = "".join(c for c in name if c not in "\t\r\n")
-    if not name:
-        raise ValueError("角色名不能为空")
+    # 角色名守卫(2026-09-23):原来只去制表符/换行,`../..` 能在 AGENTS_ROOT 之外
+    # 建目录并写 agent.json;见 `_safe_agent_name()`。
+    name = _safe_agent_name(agent_json.get("name", ""))
     agent_json["name"] = name
     agents_root = agents_root or AGENTS_ROOT
     agent_dir = os.path.join(agents_root, name)
@@ -447,7 +461,7 @@ def upgrade_agent(name: str, extra: dict = None) -> str:
     - 新增:role_type(默认 user)/organization/duty/initial_tendency/values/intervention
     - extra 可覆盖新增字段(如 role_type 指定 ai_tool)
     """
-    agent_dir = os.path.join(AGENTS_ROOT, name)
+    agent_dir = os.path.join(AGENTS_ROOT, _safe_agent_name(name))
     path = os.path.join(agent_dir, "agent.json")
     if not os.path.exists(path):
         raise FileNotFoundError(f"角色 {name} 不存在: {path}")
@@ -1312,8 +1326,10 @@ async def delete_agent(request: Request):
     """按角色名删除角色目录(agent.json + 贴图)"""
     body = await request.json()
     name = str(body.get("name", "")).strip()
-    # 防路径穿越:角色名不能含路径分隔符
-    if not name or "/" in name or "\\" in name or name in (".", ".."):
+    # 防路径穿越:与 save_agent / upgrade_agent 用**同一处**守卫(策略只有一个来源)
+    try:
+        name = _safe_agent_name(name)
+    except ValueError:
         return JSONResponse({"ok": False, "errors": ["非法的角色名"]})
     agent_dir = os.path.join(AGENTS_ROOT, name)
     if not os.path.isdir(agent_dir):

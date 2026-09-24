@@ -91,8 +91,28 @@ def _strip(value) -> str:
 # ---------------------------------------------------------------------------
 # 表单 → scenario dict(确定性,不做 AI 解析)
 # ---------------------------------------------------------------------------
+def safe_case_id(case_id: str) -> str:
+    """场景 id 守卫:它会被拼成 `cases/<case_id>/...`,不允许含路径分隔符。
+
+    2026-09-23 安全体检:`case_id` 直接来自表单,`save_scenario()` 却直接
+    `os.path.join(root, case_id)` + `makedirs` —— `../../..` 能在 cases 目录之外写
+    scenario.yaml。与 `app._safe_path_segment()` 同一口径。
+    """
+    s = "".join(c for c in str(case_id or "") if c not in "\t\r\n").strip()
+    if not s:
+        raise ValueError("场景 id 不能为空")
+    if "/" in s or "\\" in s or ":" in s or s in (".", ".."):
+        raise ValueError("非法的场景 id(不能含路径分隔符): {!r}".format(s))
+    return s
+
+
 def build_scenario(form: dict) -> dict:
-    """把结构化表单转成 scenario dict。form 为字典(数组字段已是 list of dict)。"""
+    """把结构化表单转成 scenario dict。form 为字典(数组字段已是 list of list/dict)。
+
+    注意:`case_id` 这里**不抛异常** —— 表单来的东西一律先构造成 cfg,由
+    `validate_scenario()` 把问题**作为可读错误报回界面**(既有行为,有测试钉住);
+    真正拦住穿越的是落盘那一步 `save_scenario()` 与 `app.scenario_assets_dir()`。
+    """
     meta = {
         "case_id": _strip(form.get("case_id") or form.get("name")) or "scenario",
         "name": _strip(form.get("name")) or _strip(form.get("case_id")) or "未命名场景",
@@ -219,7 +239,7 @@ def save_scenario(platform_dir: str, cfg: dict) -> str:
     root = cases_dir(platform_dir)
     if not root:
         raise ValueError("平台目录未声明,无法落盘场景(见 engine_bridge.banner() 的原因)")
-    case_id = (cfg.get("meta") or {}).get("case_id") or "scenario"
+    case_id = safe_case_id((cfg.get("meta") or {}).get("case_id") or "scenario")
     case_dir = os.path.join(root, case_id)
     os.makedirs(case_dir, exist_ok=True)
     path = os.path.join(case_dir, "scenario.yaml")
@@ -241,6 +261,13 @@ def validate_scenario(cfg: dict, platform_dir: str = ""):
     errors = []
     if not meta.get("case_id"):
         errors.append("meta.case_id 必填")
+    else:
+        # 本地也要拦一次(2026-09-23 安全体检):引擎不在时下面会走兜底分支,
+        # 那时 case_id 的形状就没人看了 —— 而它是要拼进 `cases/<case_id>/` 的。
+        try:
+            safe_case_id(meta.get("case_id"))
+        except ValueError as exc:
+            errors.append("meta.case_id 非法: {}".format(exc))
     if not cfg.get("roles"):
         errors.append("roles 至少一个")
     engine_errors = engine_bridge.validate(cfg, platform_dir)

@@ -348,20 +348,25 @@ POOL_ROOT = os.path.join(VILLAGE_ROOT, "agents_pool")
 DEFAULT_TEXTURE_SOURCE = "沈砚之"  # 兜底贴图(池空时用)
 
 
-def _safe_agent_name(name: str) -> str:
-    """角色名守卫:只接受"名字",不接受路径。
+def _safe_path_segment(value: str, what: str = "名称") -> str:
+    """路径段守卫:只接受"名字",不接受路径。角色名 / 场景 id 共用一处策略。
 
-    2026-09-23 安全体检发现:`save_agent()` / `upgrade_agent()` 原来只去掉制表符与
-    换行,名字里带 `..\\..` 就能在 AGENTS_ROOT **之外**建目录、写 agent.json
-    (角色名还进 `portrait` 路径)。`delete_agent` 早就有这个守卫,这两处漏了。
-    角色名本来也不该含路径分隔符或冒号。
+    2026-09-23 安全体检:`save_agent()` / `upgrade_agent()` 原来只去掉制表符与换行,
+    名字里带 `..\\..` 就能在 `AGENTS_ROOT` **之外**建目录、写 agent.json
+    (角色名还进 `portrait` 路径)。`delete_agent` 早就有这个守卫,那两处漏了;
+    `case_id`(场景资源目录)同理。角色名/场景 id 本来也不该含路径分隔符或冒号。
     """
-    name = "".join(c for c in str(name or "") if c not in "\t\r\n").strip()
-    if not name:
-        raise ValueError("角色名不能为空")
-    if "/" in name or "\\" in name or ":" in name or name in (".", ".."):
-        raise ValueError("非法的角色名(不能含路径分隔符): {!r}".format(name))
-    return name
+    s = "".join(c for c in str(value or "") if c not in "\t\r\n").strip()
+    if not s:
+        raise ValueError("{}不能为空".format(what))
+    if "/" in s or "\\" in s or ":" in s or s in (".", ".."):
+        raise ValueError("非法的{}(不能含路径分隔符): {!r}".format(what, s))
+    return s
+
+
+def _safe_agent_name(name: str) -> str:
+    """角色名守卫(= `_safe_path_segment`,保留旧名字给既有调用与测试)。"""
+    return _safe_path_segment(name, "角色名")
 
 
 def _pick_texture_ref(name: str) -> str:
@@ -629,8 +634,12 @@ def _list_scenarios() -> list:
 # 独立角色配置/关系/剧情/已配置角色页随之废弃。
 # ---------------------------------------------------------------------------
 def scenario_assets_dir(case_id: str) -> str:
-    """cases/<case_id>/assets/ —— 场景内容资产根(相对平台根的 rel 亦同)。"""
-    return os.path.join(scenario_builder.cases_dir(_PLATFORM_DIR), case_id, "assets")
+    """cases/<case_id>/assets/ —— 场景内容资产根(相对平台根的 rel 亦同)。
+
+    case_id 会拼进路径,必须先过守卫(安全体检 2026-09-23:原来没校验)。
+    """
+    return os.path.join(scenario_builder.cases_dir(_PLATFORM_DIR),
+                        _safe_path_segment(case_id, "场景 id"), "assets")
 
 
 def _slug(name: str) -> str:
@@ -862,10 +871,18 @@ def _tendency_join(tend: dict) -> str:
 
 
 def _load_scenario_dict(case_id: str) -> dict | None:
-    """读 cases/<case_id>/scenario.yaml 返回原始 dict;不存在返回 None。"""
+    """读 cases/<case_id>/scenario.yaml 返回原始 dict;不存在返回 None。
+
+    case_id 会拼进路径:非法 id 直接当"读不到"(读路径不抛,交给调用方报"不存在"),
+    但**不静默** —— 非法 id 与真不存在在这里是同一处理,因为都读不到任何东西。
+    """
     import yaml
     root = scenario_builder.cases_dir(_PLATFORM_DIR)
     if not root:
+        return None
+    try:
+        case_id = _safe_path_segment(case_id, "场景 id")
+    except ValueError:
         return None
     path = os.path.join(root, case_id, "scenario.yaml")
     if not os.path.isfile(path):

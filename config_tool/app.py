@@ -700,7 +700,7 @@ def _write_scenario_content(case_id: str, form: dict) -> dict:
         with open(os.path.join(d, "governance.json"), "w", encoding="utf-8") as f:
             json.dump({"roles": _gov["roles"]}, f, ensure_ascii=False, indent=2)
         if not _gov.get("used_engine"):
-            print("[governance] 引擎不可用,已退回本地口径: {}".format(
+            print("[governance] 运行方式不可用,已退回本地口径: {}".format(
                 _gov.get("engine_note", "")))
     if skipped_agents:
         rel["skipped_agents"] = skipped_agents

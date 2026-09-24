@@ -1,20 +1,20 @@
 {% extends "base.html" %}
-{% block title %}引擎 · MAVIS 配置工具{% endblock %}
+{% block title %}运行方式 · MAVIS 配置工具{% endblock %}
 {% block content %}
-<h1>引擎</h1>
+<h1>运行方式</h1>
 <p class="hint" style="margin-top:-4px;">
-  场景是数据,引擎是运行策略。下面是从引擎注册表读到的当前可用引擎,以及它们各自能跑哪些场景。
-  要把某个场景和某个引擎配成一份可重复使用的运行记录,去「<a href="/composition">组合</a>」页。
+  场景是数据,运行方式决定这一局怎么跑。下面是从运行方式注册表读到的当前可用项,以及它们各自能跑哪些场景。
+  要把某个场景和某种运行方式配成一份可重复使用的运行记录,去「<a href="/composition">组合</a>」页。
 </p>
 
 {% if not available %}
 <div class="section" style="border-color:#e6c200; background:#fffbe6;">
-  <b>引擎功能不可用:</b>{{ reason or "原因未知" }}<br>
-  引擎位置只由环境变量 <code>CASE_ENGINE_DIR</code> 显式声明(本工具不再探测兄弟目录)。
-  设置它指向引擎包所在目录后重启本工具;在此之前本页与「组合」页的运行功能不可用。
+  <b>运行方式功能不可用:</b>{{ reason or "原因未知" }}<br>
+  运行方式包的位置只由环境变量 <code>CASE_ENGINE_DIR</code> 显式声明(本工具不再探测兄弟目录)。
+  设置它指向运行方式包所在目录后重启本工具;在此之前本页与「组合」页的运行功能不可用。
 </div>
 {% else %}
-<div class="hint" style="margin-bottom:10px;">引擎目录:<code>{{ dir }}</code></div>
+<div class="hint" style="margin-bottom:10px;">运行方式目录:<code>{{ dir }}</code></div>
 {% endif %}
 {% for e in engines %}
 <div class="section">
@@ -39,20 +39,20 @@
     {% if e.scenarios %}
       {% for s in e.scenarios %}<span style="margin-right:10px;">{{ s }}</span>{% endfor %}
     {% else %}
-      <span class="hint">当前没有可用该引擎的场景</span>
+      <span class="hint">当前没有可用该运行方式的场景</span>
     {% endif %}
   </div>
 </div>
 {% endfor %}
 
-<h2>场景 × 引擎 一览</h2>
+<h2>场景 × 运行方式 一览</h2>
 <div class="section">
   <table style="width:100%; border-collapse:collapse; font-size:13px;">
     <thead>
       <tr style="text-align:left; color:#666;">
         <th style="padding:6px 8px; border-bottom:1px solid #e0e0e0;">场景</th>
-        <th style="padding:6px 8px; border-bottom:1px solid #e0e0e0;">默认引擎</th>
-        <th style="padding:6px 8px; border-bottom:1px solid #e0e0e0;">可用引擎</th>
+        <th style="padding:6px 8px; border-bottom:1px solid #e0e0e0;">默认运行方式</th>
+        <th style="padding:6px 8px; border-bottom:1px solid #e0e0e0;">可用运行方式</th>
       </tr>
     </thead>
     <tbody>

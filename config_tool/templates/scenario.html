@@ -2,7 +2,7 @@
 {% block title %}场景 · MAVIS 配置工具{% endblock %}
 {% block content %}
 <h1>场景</h1>
-<p class="hint">按结构化表单生成 <code>scenario.yaml</code>;保存前用 case_engine 的 schema 校验,保证"你能创建的就是引擎能跑的"。导出后放入 <code>cases/&lt;case_id&gt;/</code> 即可运行。</p>
+<p class="hint">按结构化表单生成 <code>scenario.yaml</code>;保存前用 case_engine 的 schema 校验,保证"你能创建的就是运行方式能跑的"。导出后放入 <code>cases/&lt;case_id&gt;/</code> 即可运行。</p>
 
 {% if scenes %}
 <style>
@@ -18,7 +18,7 @@
 
 <h2>已发现场景(<code>cases/</code> 目录)</h2>
 <table>
-    <tr><th>case_id</th><th>名称</th><th>引擎</th><th>角色数</th><th>路径</th><th style="width:80px;"></th></tr>
+    <tr><th>case_id</th><th>名称</th><th>运行方式</th><th>角色数</th><th>路径</th><th style="width:80px;"></th></tr>
     {% for s in scenes %}
     <tr>
         <td>{{ s.case_id }}</td>
@@ -44,9 +44,9 @@
 <div id="edit-banner" class="hint" style="display:none; background:#fff7e6; padding:8px 12px; border:1px solid #f0c674; margin-bottom:12px;">正在编辑已有场景。修改后点「保存场景」即写回原 case;若想存为新场景,请改 <b>case_id</b> 再保存。</div>
 
 <div class="section">
-    <label>引擎 <span class="req">*</span> <span class="opt">决定场景挂哪类运行策略;运行时仍可 --engine 覆盖</span></label>
+    <label>运行方式 <span class="req">*</span> <span class="opt">决定这一局怎么跑;运行时仍可 --engine 覆盖</span></label>
     <select id="engine">
-           <option value="">— 请先选择引擎(选完才显示该引擎需要的配置)—</option>
+           <option value="">— 请先选择运行方式(选完才显示它需要的配置)—</option>
         {% for eid, name in engines.items() %}
         <option value="{{ eid }}">{{ eid }} — {{ name }}</option>
         {% endfor %}
@@ -158,7 +158,7 @@
 <div class="section" id="sandbox-world-section" data-engines="sandbox-value">
     <div class="section" style="margin-bottom:12px;">
         <h3>角色(完整内容 · 单一来源)</h3>
-        <p class="hint" style="margin:0 0 8px;">每行一个角色,生成完整 <code>agent.json</code>(职责/权限/规则/初始倾向/空间/人设);引擎可见的 <code>roles[]</code> 由它自动推导。</p>
+        <p class="hint" style="margin:0 0 8px;">每行一个角色,生成完整 <code>agent.json</code>(职责/权限/规则/初始倾向/空间/人设);运行方式可见的 <code>roles[]</code> 由它自动推导。</p>
         <div id="sbx-roles"></div>
         <button type="button" onclick="addSbxRole()" style="margin-top:8px; padding:6px 16px; font-size:12px; background:#555;">+ 添加角色</button>
     </div>
@@ -184,7 +184,7 @@
     <details class="adv">
       <summary>高级(可选):价值权重 / 沙盒参数 —— 不填就用默认</summary>
       <p class="hint" style="margin:10px 0 4px;">
-        这两项是<strong>可选扩展</strong>:留空保存时,场景里根本不会写这两个键,引擎按默认跑。
+        这两项是<strong>可选扩展</strong>:留空保存时,场景里根本不会写这两个键,运行方式按默认跑。
         要精细控制某几个参数时再展开 —— 常见做法是先点「按上面的角色推导」拿到骨架,再改数字。
       </p>
     <label>价值权重 <code>world.value_tendency</code> <span class="opt">JSON:{"governance": {...}, "initial_tendency": {...}};governance 同步生成 assets/governance.json</span></label>
@@ -193,7 +193,7 @@
     
     <label>沙盒参数 <code>world.params</code> <span class="opt">JSON:percept/schedule/think/chat 等</span></label>
     <textarea id="sandbox_params" style="height:60px;" placeholder='{"percept":{"mode":"box"}}'></textarea>
-    <p class="hint" style="margin:4px 0 0;"><button type="button" class="ex-btn" onclick="fillJsonExample('sandbox_params', '{"percept": {"mode": "box"}}')">填入骨架</button> 说明:percept/schedule/think/chat 等透传给引擎;留空则用默认。</p>
+    <p class="hint" style="margin:4px 0 0;"><button type="button" class="ex-btn" onclick="fillJsonExample('sandbox_params', '{"percept": {"mode": "box"}}')">填入骨架</button> 说明:percept/schedule/think/chat 等透传给运行方式;留空则用默认。</p>
     </details>
 </div>
 
@@ -463,11 +463,11 @@ function preview(){
     .then(function(res){return res.json();})
     .then(function(d){
         if(!d.ok){ showResult(("错误: "+d.errors.join("\n")), ""); return; }
-        var msg="===== scenario.yaml =====\n"+d.yaml+"\n===== 引擎校验 =====\n";
-        if(d.engine_check){ msg+="通过(引擎 schema 校验通过)\n"; }
+        var msg="===== scenario.yaml =====\n"+d.yaml+"\n===== 运行方式校验 =====\n";
+        if(d.engine_check){ msg+="通过(运行方式 schema 校验通过)\n"; }
         else { msg+="未通过: "+d.errors.join("; ")+"\n"; }
-        if(d.engine_available){ msg+="引擎可用: 是\n"; }
-        else { msg+="引擎不可用: "+(d.engine_reason||"原因未知")+"\n(已退回基础校验:能保存,但不保证能被引擎加载)\n"; }
+        if(d.engine_available){ msg+="运行方式可用: 是\n"; }
+        else { msg+="运行方式不可用: "+(d.engine_reason||"原因未知")+"\n(已退回基础校验:能保存,但不保证能被运行方式加载)\n"; }
         showResult(msg, "");
     })
     .catch(function(e){ showResult("请求失败: "+e, ""); });
@@ -479,7 +479,7 @@ function saveScene(){
         body: JSON.stringify(collectForm())})
     .then(function(res){return res.json();})
     .then(function(d){
-        if(d.ok){ showResult("已保存: "+d.path+"\n\n可直接用引擎运行: python -m case_engine run "+d.case_id, "ok"); }
+        if(d.ok){ showResult("已保存: "+d.path+"\n\n可直接运行: python -m case_engine run "+d.case_id, "ok"); }
         else { showResult("保存失败:\n"+d.errors.join("\n"), "error"); }
     })
     .catch(function(e){ showResult("请求失败: "+e, ""); });
@@ -692,12 +692,12 @@ function removeSbxCard(btn){
        });
        // 保存/预览在没选引擎时禁用,并说明原因(不静默地"点了没反应")
        document.querySelectorAll("[data-needs-engine]").forEach(function(b){
-           b.disabled=!e; b.title=e ? "" : "请先选择引擎";
+           b.disabled=!e; b.title=e ? "" : "请先选择运行方式";
        });
        if(hint){
-           if(!e){ hint.textContent="请先选择引擎:选完才会显示该引擎需要的配置项。"; }
+           if(!e){ hint.textContent="请先选择运行方式:选完才会显示它需要的配置项。"; }
            else {
-               hint.textContent="当前引擎 "+e+" 的配置项已展开;其余引擎的配置项已隐藏。";
+               hint.textContent="当前运行方式 "+e+" 的配置项已展开;其余运行方式的配置项已隐藏。";
            }
        }
    }

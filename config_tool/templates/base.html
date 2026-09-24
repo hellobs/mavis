@@ -79,16 +79,16 @@ nav a:hover { color: #333; }
 {% set rs = runtime_status() %}
 {% if not rs.available %}
 <div class="banner-warn">
-  <b>引擎功能不可用:</b>{{ rs.reason }}<br>
-  引擎相关功能(引擎页 / 组合页的运行与校验)已置灰;场景仍可编辑,但只做基础校验。<br>
-  启用方式:<code>set {{ rs.env_var }}=&lt;引擎包所在目录&gt;</code> 后重启本工具。
+  <b>运行方式功能不可用:</b>{{ rs.reason }}<br>
+  运行方式相关功能(运行方式页 / 组合页的运行与校验)已置灰;场景仍可编辑,但只做基础校验。<br>
+  启用方式:<code>set {{ rs.env_var }}=&lt;运行方式包所在目录&gt;</code> 后重启本工具。
 </div>
 {% endif %}
 {% if rs.platform_reason %}
 <div class="banner-warn"><b>平台目录不可用:</b>{{ rs.platform_reason }}</div>
 {% endif %}
 {% if rs.available and rs.platform %}
-<div class="banner-ok">引擎已就绪:{{ rs.dir }} · 平台根:{{ rs.platform }}</div>
+<div class="banner-ok">运行方式已就绪:{{ rs.dir }} · 平台根:{{ rs.platform }}</div>
 {% endif %}
 {% else %}
 <div class="banner-warn">
@@ -98,7 +98,7 @@ nav a:hover { color: #333; }
 {% endif %}
 <nav>
     <a href="/scenario" class="{{ 'active' if active == 'scenario' }}">场景</a>
-    <a href="/engines" class="{{ 'active' if active == 'engines' }}">引擎</a>
+    <a href="/engines" class="{{ 'active' if active == 'engines' }}">运行方式</a>
     <a href="/composition" class="{{ 'active' if active in ('composition', 'run') }}">组合</a>
     <button type="button" id="export-btn" style="margin:0; padding:4px 14px; font-size:12px; background:#2d6cdf; float:right;">导出配置 (.zip)</button>
 </nav>

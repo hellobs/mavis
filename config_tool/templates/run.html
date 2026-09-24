@@ -2,14 +2,14 @@
 {% block title %}组合 · MAVIS 配置工具{% endblock %}
 {% block content %}
 <h1>组合</h1>
-<p class="hint">场景(case)是数据,引擎是运行策略,<b>组合</b>是二者配对后的一份可复用记录。下表即组合注册表——<b>点选一个组合即可运行</b>;用下方表单登记新的组合(case × engine)。</p>
+<p class="hint">场景(case)是数据,运行方式决定这一局怎么跑,<b>组合</b>是二者配对后的一份可复用记录。下表即组合注册表——<b>点选一个组合即可运行</b>;用下方表单登记新的组合(case × engine)。</p>
 
 <div class="section">
     <h2 style="margin-top:0;">组合注册表</h2>
     <div id="comp-empty" class="hint" style="display:none;">尚未登记任何组合;用下方"新建组合"添加第一个。</div>
     <table id="comp-table" style="display:none;">
         <tr>
-            <th>名称</th><th>场景 × 引擎</th><th>默认</th><th>状态</th><th style="width:200px;">操作</th>
+            <th>名称</th><th>场景 × 运行方式</th><th>默认</th><th>状态</th><th style="width:200px;">操作</th>
         </tr>
         <tbody id="comp-body"></tbody>
     </table>
@@ -27,7 +27,7 @@
             </select>
         </div>
         <div>
-            <label>引擎 <span class="req">*</span></label>
+            <label>运行方式 <span class="req">*</span></label>
             <select id="new-engine">
                 {% for eid, name in engine_options.items() %}
                 <option value="{{ eid }}">{{ eid }}({{ name }})</option>
@@ -35,7 +35,7 @@
             </select>
         </div>
         <div>
-            <label>组合名 <span class="opt">(选填,默认「场景名 · 引擎名」)</span></label>
+            <label>组合名 <span class="opt">(选填,默认「场景名 · 运行方式名」)</span></label>
             <input type="text" id="new-name" placeholder="如 产品评审-受控">
         </div>
     </div>
@@ -179,7 +179,7 @@ function render(res){
     ];
     if(s.all_ok !== undefined) rows.push(["可装配", s.all_ok]);
     if(s.consistency) rows.push(["一致性", s.consistency.verdict+" — "+s.consistency.reason]);
-    if(s._engine_id && s._uses_default_engine) rows.push(["引擎来源", "场景默认(未显式覆盖)"]);
+    if(s._engine_id && s._uses_default_engine) rows.push(["运行方式来源", "场景默认(未显式覆盖)"]);
     if(s.state) rows.push(["状态", s.state]);
     rows.forEach(function(r){
         h += "<tr><td class='k'>"+esc(r[0])+"</td><td>"+fmt(r[0], r[1])+"</td></tr>";

@@ -83,7 +83,7 @@ cfg = mf.load_config_from_log("results/checkpoints/invest-live")
 
 ## 3. 校验配置(validate_all)
 
-配置是给 LLM 和地图引擎吃的,错了会运行崩溃。用 `validate_all` 提前拦截:
+配置是给 LLM 和地图运行方式吃的,错了会运行崩溃。用 `validate_all` 提前拦截:
 
 ```python
 import json, glob

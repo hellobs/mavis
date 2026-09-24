@@ -78,7 +78,7 @@ def status(explicit: str = "") -> dict:
     source = "参数" if str(explicit or "").strip() else ENV_DIR
     if not directory:
         return {"configured": False, "dir": "", "source": source, "available": False,
-                "reason": "未设置环境变量 {}(引擎相关功能不可用)".format(ENV_DIR)}
+                "reason": "未设置环境变量 {}(运行方式相关功能不可用)".format(ENV_DIR)}
     if not os.path.isdir(directory):
         return {"configured": True, "dir": directory, "source": source,
                 "available": False,
@@ -120,8 +120,8 @@ def banner(explicit: str = "") -> str:
     """启动横幅:把**实际解析到的路径**打印出来,成功与失败都可见。"""
     st = status(explicit)
     if st["available"]:
-        return "[engine] 引擎可用:{} = {}(来源:{})".format(ENV_DIR, st["dir"], st["source"])
-    return "[engine] 引擎不可用:{}(引擎相关功能置灰;要启用请设置 {} 指向引擎包所在目录)" \
+        return "[engine] 运行方式可用:{} = {}(来源:{})".format(ENV_DIR, st["dir"], st["source"])
+    return "[engine] 运行方式不可用:{}(运行方式相关功能置灰;要启用请设置 {} 指向引擎包所在目录)" \
         .format(st["reason"], ENV_DIR)
 
 

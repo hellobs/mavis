@@ -53,7 +53,7 @@ def run_case(platform_dir: str, case_id: str, engine_id: str = "",
     - ok=True:summary = run() 的 dict(含 run_type/branch/etc)。
     """
     if engine_bridge.api() is None:
-        return False, {}, ["引擎不可用: {}".format(engine_bridge.reason())]
+        return False, {}, ["运行方式不可用: {}".format(engine_bridge.reason())]
     root = cases_root or os.environ.get("CASE_ENGINE_CASES_ROOT") \
         or (os.path.join(platform_dir, "cases") if platform_dir else "")
     if not root:

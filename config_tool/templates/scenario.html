@@ -89,7 +89,7 @@
 </div>
 
 {# experiment-eval 专属三段(世界状态 / 分支判定 / 一致性信号词):
-   沙盒引擎不消费它们,切换引擎时整体隐藏 —— 见 toggleSandboxWorld()。 #}
+   沙盒运行方式不消费它们,切换运行方式时整体隐藏 —— 见 toggleSandboxWorld()。 #}
 <div id="eval-only-section" data-engines="experiment-eval">
 <h2 data-engines="experiment-eval">世界状态(主角可变字段)</h2>
 <div class="section">
@@ -592,7 +592,7 @@ function fillForm(f){
         d.querySelector(".sbstory-targets").value = ev.targets||"all";
         d.querySelector(".sbstory-expected").value = ev.expected||"";
     });
-    // 引擎差异动态显隐
+    // 运行方式差异动态显隐
     toggleSandboxWorld();
     // 地址树按该场景实际地图就绪后,再回填各角色居住区,保证非默认地图也能命中正确选项
     reloadAddresses().then(function(){
@@ -679,7 +679,7 @@ function removeSbxCard(btn){
 }
 // 按 meta.engine 动态显示:沙盒区块仅 sandbox-value;手工角色表仅 experiment-eval
    function toggleSandboxWorld(){
-       // 先选引擎,再显示该引擎需要的配置;没选 → 引擎专属内容一律不显示。
+       // 先选运行方式,再显示该运行方式需要的配置;没选 → 运行方式专属内容一律不显示。
        var sel=document.getElementById("engine");
        var e=sel ? sel.value : "";
        var hint=document.getElementById("engine-field-hint");
@@ -690,7 +690,7 @@ function removeSbxCard(btn){
            el.style.display=on ? "" : "none";
            if(on) shown.push(el.id||el.className);
        });
-       // 保存/预览在没选引擎时禁用,并说明原因(不静默地"点了没反应")
+       // 保存/预览在没选运行方式时禁用,并说明原因(不静默地"点了没反应")
        document.querySelectorAll("[data-needs-engine]").forEach(function(b){
            b.disabled=!e; b.title=e ? "" : "请先选择运行方式";
        });

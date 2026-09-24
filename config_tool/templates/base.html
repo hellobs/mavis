@@ -81,7 +81,7 @@ nav a:hover { color: #333; }
 <div class="banner-warn">
   <b>运行方式功能不可用:</b>{{ rs.reason }}<br>
   运行方式相关功能(运行方式页 / 组合页的运行与校验)已置灰;场景仍可编辑,但只做基础校验。<br>
-  启用方式:<code>set {{ rs.env_var }}=&lt;运行方式包所在目录&gt;</code> 后重启本工具。
+  启用方式:<code>set {{ rs.env_var }}=&lt;引擎包所在目录&gt;</code> 后重启本工具。
 </div>
 {% endif %}
 {% if rs.platform_reason %}

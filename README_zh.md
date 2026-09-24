@@ -207,14 +207,14 @@ config_tool/             # 角色配置工具(独立 FastAPI 服务)
 pyproject.toml           # 包构建配置(uv build / uv pip install)
 ```
 
-config_tool 是**引擎侧的配套工具**:它需要用引擎的注册表与 schema 做校验/运行自检,产物(角色/关系/剧情/场景)写入平台的前端资源与场景目录。引擎与平台的位置**只认显式声明**(2026-09-22 起不再探测兄弟目录 `../provenance`):
+config_tool 是**实现侧的配套工具**:它需要用运行方式的注册表与 schema 做校验/运行自检,产物(角色/关系/剧情/场景)写入平台的前端资源与场景目录。运行方式与平台的位置**只认显式声明**(2026-09-22 起不再探测兄弟目录 `../provenance`):
 
-- `CASE_ENGINE_DIR` — **引擎包所在目录**(`case_engine/` 的父目录);不设置则工具照常启动,但引擎相关功能(「引擎」页、「组合」页运行、schema 深度校验)置灰并在页面与启动日志里给出原因
+- `CASE_ENGINE_DIR` — **引擎包所在目录**(`case_engine/` 的父目录);不设置则工具照常启动,但运行方式相关功能(「运行方式」页、「组合」页运行、schema 深度校验)置灰并在页面与启动日志里给出原因
 - `MAVIS_PLATFORM_DIR` — 平台仓根(产物落盘/地图/实时入口联动);未设置时沿用 `CASE_ENGINE_DIR`
 - `MAVIS_ASSETS_ROOT` — 平台前端资源根(`frontend/static/assets/village`)
 - `MAVIS_SCENARIOS_DIR` — 平台场景目录(`scenarios`)
 - `MAVIS_MAZE_PATH` — 默认地图文件
-- `CASE_ENGINE_CASES_ROOT` — 场景根目录(引擎侧同名变量)
+- `CASE_ENGINE_CASES_ROOT` — 场景根目录(实现侧同名变量)
 
 启动示例(Windows):
 
@@ -224,7 +224,7 @@ set CASE_ENGINE_DIR=D:\zzr\provenance\provenance
 python app.py            :: 服务地址 http://127.0.0.1:8060/
 ```
 
-与引擎的全部接触收敛在 `config_tool/engine_bridge.py` 一个模块;其余模块只调它,详见 `config_tool/README.md`。
+与运行方式的全部接触收敛在 `config_tool/engine_bridge.py` 一个模块;其余模块只调它,详见 `config_tool/README.md`。
 
 ## 11. 状态
 
@@ -270,6 +270,6 @@ python app.py            :: 服务地址 http://127.0.0.1:8060/
 - **角色名守卫**:`_safe_agent_name()` —— 角色名不许含路径分隔符、冒号或 `.`/`..`。
   此前 `save_agent()` / `upgrade_agent()` 只去掉制表符/换行,名字里带 `..\..` 能在
   `AGENTS_ROOT` 之外建目录并写 `agent.json`(`delete_agent` 早有守卫,这两处漏了)。
-- 引擎位置只认显式 `CASE_ENGINE_DIR`(见 `tests/test_engine_bridge.py`),不探测兄弟目录。
+- 运行方式位置只认显式 `CASE_ENGINE_DIR`(见 `tests/test_engine_bridge.py`),不探测兄弟目录。
 - 测试:`tests/test_config_tool_name_guard.py`(含"拒绝之前不许落盘"的断言)。
 

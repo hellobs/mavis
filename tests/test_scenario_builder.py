@@ -12,6 +12,12 @@ import scenario_builder  # noqa: E402
 PLATFORM_DIR = os.path.join(os.path.dirname(CONFIG_TOOL_DIR), "..", "provenance", "provenance")
 PLATFORM_DIR = os.path.normpath(PLATFORM_DIR)
 
+# 只有真正要 case_engine 的用例才跳过(mavis 是独立框架仓,单独 clone 时没有兄弟仓);
+# 纯构建/导出用例不依赖它,照跑。跨仓集成验证归 provenance CI。
+needs_case_engine = pytest.mark.skipif(
+    not os.path.isdir(os.path.join(PLATFORM_DIR, "case_engine")),
+    reason="provenance 仓不在预期位置(../provenance/provenance);跨仓集成验证归 provenance CI")
+
 
 def _sample_form(**over):
     form = {
@@ -78,6 +84,7 @@ def test_dump_load_roundtrip():
     assert loaded == cfg
 
 
+@needs_case_engine
 def test_validate_with_case_engine_schema():
     """生成场景能通过 case_engine 的 Validate 契约(引擎可用时)。"""
     cfg = scenario_builder.build_scenario(_sample_form())
@@ -86,6 +93,7 @@ def test_validate_with_case_engine_schema():
     assert errors == []
 
 
+@needs_case_engine
 def test_validate_fails_on_bad_case_id():
     cfg = scenario_builder.build_scenario(_sample_form(case_id=" 非法 / 空格"))
     ok, errors = scenario_builder.validate_scenario(cfg, PLATFORM_DIR)
@@ -93,6 +101,7 @@ def test_validate_fails_on_bad_case_id():
     assert any("case_id" in e for e in errors)
 
 
+@needs_case_engine
 def test_save_writes_to_cases_and_loads_back(monkeypatch, tmp_path):
     """保存后落盘 cases/<case_id>/scenario.yaml,且能被 case_engine 加载。"""
     os.environ["CASE_ENGINE_CASES_ROOT"] = str(tmp_path / "_cases")

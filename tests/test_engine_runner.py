@@ -5,6 +5,8 @@
 import os
 import sys
 
+import pytest
+
 CONFIG_TOOL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config_tool")
 sys.path.insert(0, CONFIG_TOOL_DIR)
 
@@ -14,6 +16,13 @@ CASES_ROOT = os.path.join(PLATFORM_DIR, "cases")
 
 # 测试也走"显式声明"这条唯一路径(缺了它本文件的用例本就该失败,不是静默降级)
 os.environ.setdefault("CASE_ENGINE_DIR", PLATFORM_DIR)
+
+# 但 mavis 是**独立框架仓**:单独 clone 时没有兄弟仓 ../provenance,这些用例在
+# mavis CI 里必然失败。此处**显式跳过**并写明原因(与 test_engine_bridge.py 同口径),
+# 不让"单独 clone mavis 跑 pytest"一片红;跨仓集成验证归 provenance CI(它有两侧)。
+pytestmark = pytest.mark.skipif(
+    not os.path.isdir(os.path.join(PLATFORM_DIR, "case_engine")),
+    reason="provenance 仓不在预期位置(../provenance/provenance);跨仓集成验证归 provenance CI")
 
 import engine_bridge  # noqa: E402
 import engine_runner  # noqa: E402

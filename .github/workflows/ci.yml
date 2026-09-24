@@ -15,10 +15,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install package
+      - name: Install package + config_tool deps
+        # config_tool 的 web 依赖(fastapi/uvicorn/jinja2)此前未声明,导致
+        # tests/test_config_tool_name_guard.py 收集期 ModuleNotFoundError 而 CI 长期红。
         run: |
-          pip install .
-          pip install pytest
+          pip install ".[config-tool,dev]"
 
       - name: Run tests
         run: |

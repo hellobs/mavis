@@ -18,6 +18,14 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+# config_tool 的 web 依赖此前**从未声明**(CI 只装 `pip install .`,于是
+# tests/test_config_tool_name_guard.py 收集期 ModuleNotFoundError,CI 长期红)。
+# 声明在这里,CI 用 .[config-tool,dev] 一次装齐。
+config-tool = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "jinja2>=3.1",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

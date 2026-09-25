@@ -750,10 +750,23 @@ def _sandbox_world_assets(case_id: str, form: dict, rel: dict) -> dict:
     return assets
 
 
+async def _json_body(request: Request) -> dict:
+    """容错 JSON 解析(2026-09-24 深度体检):空 body / 坏 JSON / 非 dict 一律按 {} 处理。
+
+    以前裸 `await request.json()` 遇到空 body 直接 JSONDecodeError → 500,
+    调用方(前端 fetch)只看到"内部错误",不知道是自己的表单没填。
+    """
+    try:
+        body = await _json_body(request)
+    except Exception:      # noqa: BLE001 —— 没有 body 是正常的(空表单预检);坏 body 按空处理
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
 @app.post("/api/scenario/preview")
 async def scenario_preview(request: Request):
     """接收表单 → 生成 scenario.yaml 文本 + 校验结果(不落盘,供预览/评审)。"""
-    form = await request.json()
+    form = await _json_body(request)
     form = _sandbox_link(form)
     try:
         cfg = scenario_builder.build_scenario(form)
@@ -775,7 +788,7 @@ async def scenario_preview(request: Request):
 @app.post("/api/scenario/save")
 async def scenario_save(request: Request):
     """校验通过后把场景写入 cases/<case_id>/;sandbox-value 场景同时生成完整内容资产。"""
-    form = await request.json()
+    form = await _json_body(request)
     form = _sandbox_link(form)
     try:
         cfg = scenario_builder.build_scenario(form)
@@ -1077,7 +1090,7 @@ async def list_compositions():
 
 @app.post("/api/compositions")
 async def create_composition(request: Request):
-    body = await request.json() or {}
+    body = await _json_body(request)
     comps = _comps()
     new_comps, ok, payload = compositions.create(
         comps,
@@ -1105,7 +1118,7 @@ async def delete_composition(comp_id: str):
 
 @app.patch("/api/compositions/{comp_id}")
 async def update_composition(comp_id: str, request: Request):
-    body = await request.json() or {}
+    body = await _json_body(request)
     comps = _comps()
     action = (body or {}).get("action") or ""
     if action == "rename":
@@ -1173,7 +1186,7 @@ async def run_execute(request: Request):
     - composition_id 提供:取组合记录 → case/engine,并校验记录 enabled;
     - 否则沿用传入的 case_id+engine_id(允许临时试跑未登记组合)。
     """
-    body = await request.json()
+    body = await _json_body(request)
     comp_id = str((body or {}).get("composition_id") or "").strip()
     case_id = str((body or {}).get("case_id") or "").strip()
     engine_id = str((body or {}).get("engine_id") or "").strip()
@@ -1203,7 +1216,7 @@ async def run_execute(request: Request):
 
 @app.post("/api/generate")
 async def generate(request: Request):
-    form = await request.json()
+    form = await _json_body(request)
     business = form.get("business", "").strip()
     if not business:
         return JSONResponse({"ok": False, "errors": ["业务名称不能为空"]})
@@ -1229,7 +1242,7 @@ async def generate(request: Request):
 @app.post("/api/upgrade")
 async def upgrade(request: Request):
     """升级现有角色为全字段(读旧 agent.json,补新字段)"""
-    body = await request.json()
+    body = await _json_body(request)
     name = body.get("name", "").strip()
     if not name:
         return JSONResponse({"ok": False, "errors": ["角色名不能为空"]})
@@ -1245,7 +1258,7 @@ async def upgrade(request: Request):
 @app.post("/api/relationship")
 async def add_relationship(request: Request):
     """追加一条角色关系到 relationships.json"""
-    body = await request.json()
+    body = await _json_body(request)
     business = body.get("business", "investment").strip()
     agents = [a.strip() for a in body.get("agents", "").split(",") if a.strip()]
     if len(agents) != 2:
@@ -1267,7 +1280,7 @@ async def add_relationship(request: Request):
 @app.post("/api/relationship/delete")
 async def delete_relationship(request: Request):
     """按序号删除一条关系(序号 = 列表页行号,从 0 开始)"""
-    body = await request.json()
+    body = await _json_body(request)
     business = body.get("business", "investment").strip()
     index = body.get("index")
     if not isinstance(index, int) or index < 0:
@@ -1290,7 +1303,7 @@ async def delete_relationship(request: Request):
 @app.post("/api/story")
 async def add_story(request: Request):
     """追加一条剧情事件到 story.json"""
-    body = await request.json()
+    body = await _json_body(request)
     business = body.get("business", "investment").strip()
     time_ = body.get("time", "").strip()
     event_type = body.get("event_type", "").strip()
@@ -1318,7 +1331,7 @@ async def add_story(request: Request):
 @app.post("/api/story/delete")
 async def delete_story(request: Request):
     """按 id 删除一条剧情事件"""
-    body = await request.json()
+    body = await _json_body(request)
     business = body.get("business", "investment").strip()
     ev_id = str(body.get("id", "")).strip()
     if not ev_id:
@@ -1341,7 +1354,7 @@ async def delete_story(request: Request):
 @app.post("/api/agent/delete")
 async def delete_agent(request: Request):
     """按角色名删除角色目录(agent.json + 贴图)"""
-    body = await request.json()
+    body = await _json_body(request)
     name = str(body.get("name", "")).strip()
     # 防路径穿越:与 save_agent / upgrade_agent 用**同一处**守卫(策略只有一个来源)
     try:

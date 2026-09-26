@@ -377,3 +377,44 @@ class TestV2WindowConstraintFiltering:
         for w in agent._tendency_window:
             assert "C" not in w.get("feedback", {})
             assert "C" not in w.get("alignment", {})
+
+
+class TestTendencyMathProperties:
+    """倾向更新的数学性质(2026-09-26 深度体检补):归一化守恒/α 下限/被删维度消退。
+
+    此前的回归测试覆盖"朝约束收敛"与"删除目标消退",但从未显式断言
+    **Σ(value_tendency) == 1** 这个最基本的性质 —— 它一旦破坏,所有
+    倾向曲线、位移分析、.goal_score 全部失真。
+    """
+
+    def _mk(self):
+        import random as _r
+        _r.seed(42)
+        agent = _mk_agent({"A": 0.25, "B": 0.25, "C": 0.25, "D": 0.25}, window_size=10)
+        gov = Governance()
+        gov.data = {"roles": {"测试人": {"A": 0.5, "B": 0.3, "C": 0.2}}}
+        agent.attach_governance(gov, lambda self, d: {"A": 0.5, "B": 0.3, "C": 0.2})
+        return agent
+
+    def test_sum_conservation_alpha_floor_and_dropped_extinction(self):
+        import random as _r
+        _r.seed(42)
+        agent = self._mk()
+        worst_err = 0.0
+        for i in range(40):
+            if i == 20:
+                # 中途制度收缩:删除 C,权重向 A/B 集中
+                agent._governance.data["roles"]["测试人"] = {"A": 0.6, "B": 0.4}
+            fb = {"A": _r.random(), "B": _r.random()}
+            if i < 20:
+                fb["C"] = _r.random()
+            agent._consequence_fn = lambda self, d, fb=fb: fb
+            agent.observe_consequence("action-{}-{}".format(i, _r.random()))
+            err = abs(sum(agent.value_tendency.values()) - 1.0)
+            worst_err = max(worst_err, err)
+            assert err < 1e-9, "step {}: Σ倾向偏离 1(err={:.2e})".format(i, err)
+            if i >= 25:
+                assert agent.value_tendency.get("C", 0.0) < 1e-9, "被删维度 C 未消退"
+            if i >= 15:
+                assert agent.status["tendency_meta"]["alpha"] == 0.1, "α 应触底下限 0.1"
+        assert worst_err < 1e-9

@@ -65,6 +65,18 @@ class _Timer:
         return "20250213-09:30:00"
 
 
+class _NullScorer:
+    """密封测试用:goal_alignment 返回空 dict,与"Ollama 不可达"的回退路径等价。
+
+    不注入时,observe_consequence 内部的 goal_alignment 会构造真 GoalScorer
+    打 Ollama embedding —— Ollama 在线时套件 2s,离线时每个文本等死超时
+    (2026-09-26 体检:整套件 641s,元凶就是这 4 个测试)。
+    """
+
+    def alignment(self, action, goals):
+        return {}
+
+
 def _mk_agent(initial_tendency, window_size=15, status=None):
     """构造最小 Agent(注入假依赖,不触发 LLM)"""
     cfg = {
@@ -84,7 +96,9 @@ def _mk_agent(initial_tendency, window_size=15, status=None):
     }
     if status:
         cfg["status"] = status
-    return Agent(cfg, _Maze(), {}, timer=_Timer())
+    agent = Agent(cfg, _Maze(), {}, timer=_Timer())
+    agent._goal_scorer = _NullScorer()      # 密封:不真打 Ollama embedding
+    return agent
 
 
 def _attach(agent, constraints, feedback_fn):
@@ -274,7 +288,9 @@ class TestNoSleepCleanup:
             cfg["idle_text"] = idle_text
         if with_action:
             cfg["action"] = with_action
-        return Agent(cfg, _Maze(), {}, timer=_Timer())
+        agent = Agent(cfg, _Maze(), {}, timer=_Timer())
+        agent._goal_scorer = _NullScorer()   # 密封:不真打 Ollama embedding
+        return agent
 
     def test_restored_action_chinese_idle_cleaned(self):
         # resume 恢复的 action(存档里执行中的段)若为中文"空闲待命"应清洗为英文

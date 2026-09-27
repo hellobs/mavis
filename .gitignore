@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# config_tool 的本地目录设置(「运行方式」页可填;不入库)
+.config_tool_dirs.json

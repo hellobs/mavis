@@ -26,6 +26,9 @@ ENV_DIR = "CASE_ENGINE_DIR"
 
 _SENTINEL = object()
 _API_CACHE = {}          # abs_dir -> (api | None, reason);进程内缓存(改环境变量需重启)
+# 本地设置文件:免环境变量的落点(与 config_tool 同目录,不入库);「运行方式」页里可填
+SETTING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            ".config_tool_dirs.json")
 
 
 class EngineUnavailable(RuntimeError):
@@ -35,13 +38,103 @@ class EngineUnavailable(RuntimeError):
 # ---------------------------------------------------------------------------
 # 定位与状态
 # ---------------------------------------------------------------------------
-def engine_dir(explicit: str = "") -> str:
-    """解析引擎包所在目录:显式传入优先,其次环境变量;都没有返回空串。
+def _read_settings() -> dict:
+    """读本地设置文件(不存在/坏档 → 空 dict,不抛)。"""
+    import json
+    try:
+        with open(SETTING_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
-    只做**声明解析**——不做任何"猜兄弟目录"的探测。
+
+def write_settings(**kw) -> str:
+    """把目录设置写进本地设置文件(页面设置入口用);返回落盘路径。"""
+    import json
+    data = _read_settings()
+    for k, v in kw.items():
+        s = str(v or "").strip()
+        if s:
+            data[k] = s
+        else:
+            data.pop(k, None)
+    with open(SETTING_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return SETTING_FILE
+
+
+def _listdir(path, cap=200):
+    """安全列目录(不存在/无权限 → 空;上限 cap 防目录爆炸)。"""
+    try:
+        return sorted(os.listdir(path))[:cap]
+    except OSError:
+        return []
+
+
+def auto_candidates() -> list:
+    """自动发现的候选目录(有序去重):本工具相邻目录(含其下一层)+ 当前工作目录及其上溯。
+
+    **不写死任何仓库名** —— 只列候选,是否可用由 marker 目录校验(见 resolve_dir);
+    找到时来源会写明"自动发现"，不静默。
     """
-    val = str(explicit or "").strip() or str(os.environ.get(ENV_DIR) or "").strip()
-    return os.path.abspath(val) if val else ""
+    here = os.path.dirname(os.path.abspath(__file__))     # 本工具目录
+    repo = os.path.dirname(here)                          # 本工具所属仓根
+    up = os.path.dirname(repo)                            # 与相邻仓的共同父目录
+    cands = []
+    for base in (up, repo):
+        for n in _listdir(base):
+            p = os.path.join(base, n)
+            cands.append(p)
+            for sub in _listdir(p):
+                cands.append(os.path.join(p, sub))
+    p = os.path.abspath(os.getcwd())
+    for _ in range(4):
+        cands.append(p)
+        for sub in _listdir(p):
+            cands.append(os.path.join(p, sub))
+        nxt = os.path.dirname(p)
+        if not nxt or nxt == p:
+            break
+        p = nxt
+    out, seen = [], set()
+    for c in cands:
+        c = os.path.abspath(c)
+        if c in seen or c == here or not os.path.isdir(c):
+            continue
+        seen.add(c)
+        out.append(c)
+    return out
+
+
+def resolve_dir(explicit: str = "", env_keys=(), setting_key: str = "engine_dir",
+                marker: str = PKG) -> dict:
+    """解析"某类目录":显式参数 → 环境变量 → 本地设置文件 → 自动发现(须含 marker 目录)。
+
+    返回 ``{"dir", "source", "configured"}``;找不到时 dir=""、configured=False。
+    ``source`` ∈ {"参数", 环境变量名, "设置文件", "自动发现"} —— 调用方把它显示出来
+    (**不静默**)。自动发现只认"确实含 marker 目录"的候选,避免猜错;显式声明永远优先。
+    """
+    val = str(explicit or "").strip()
+    if val:
+        return {"dir": os.path.abspath(val), "source": "参数", "configured": True}
+    for k in (tuple(env_keys) or (ENV_DIR,)):
+        e = str(os.environ.get(k) or "").strip()
+        if e:
+            return {"dir": os.path.abspath(e), "source": k, "configured": True}
+    sv = str(_read_settings().get(setting_key) or "").strip()
+    if sv:
+        return {"dir": os.path.abspath(sv), "source": "设置文件", "configured": True}
+    want = (marker,) if isinstance(marker, str) else tuple(marker)
+    for c in auto_candidates():
+        if all(os.path.isdir(os.path.join(c, m)) for m in want):
+            return {"dir": c, "source": "自动发现", "configured": True}
+    return {"dir": "", "source": ENV_DIR, "configured": False}
+
+
+def engine_dir(explicit: str = "") -> str:
+    """解析引擎包所在目录(见 resolve_dir 的解析顺序);找不到返回空串。"""
+    return resolve_dir(explicit)["dir"]
 
 
 def _load(directory: str):
@@ -74,20 +167,22 @@ def status(explicit: str = "") -> dict:
              "available": bool, "reason": str}``;
     ``reason`` 在不可用时**一定**是可读原因(空串仅出现在可用时)。
     """
-    directory = engine_dir(explicit)
-    source = "参数" if str(explicit or "").strip() else ENV_DIR
+    r = resolve_dir(explicit)
+    directory, source = r["dir"], r["source"]
     if not directory:
         return {"configured": False, "dir": "", "source": source, "available": False,
-                "reason": "未设置环境变量 {}(运行方式相关功能不可用)".format(ENV_DIR)}
+                "reason": "未找到引擎包目录(运行方式相关功能置灰):可在「运行方式」页填一次"
+                          "目录(存本地设置文件),或设环境变量 {},或把本工具放到平台仓旁自动发现"
+                          .format(ENV_DIR)}
     if not os.path.isdir(directory):
         return {"configured": True, "dir": directory, "source": source,
                 "available": False,
-                "reason": "{} 指向的目录不存在: {}".format(ENV_DIR, directory)}
+                "reason": "({}) 指向的目录不存在: {}".format(source, directory)}
     pkg_dir = os.path.join(directory, PKG)
     if not os.path.isdir(pkg_dir):
         return {"configured": True, "dir": directory, "source": source,
                 "available": False,
-                "reason": "{}={} 下找不到引擎包目录: {}".format(ENV_DIR, directory, pkg_dir)}
+                "reason": "({}) = {} 下找不到引擎包目录: {}".format(source, directory, pkg_dir)}
     api, reason = _load(directory)
     return {"configured": True, "dir": directory, "source": source,
             "available": api is not None, "reason": reason}
@@ -121,8 +216,7 @@ def banner(explicit: str = "") -> str:
     st = status(explicit)
     if st["available"]:
         return "[engine] 运行方式可用:{} = {}(来源:{})".format(ENV_DIR, st["dir"], st["source"])
-    return "[engine] 运行方式不可用:{}(运行方式相关功能置灰;要启用请设置 {} 指向引擎包所在目录)" \
-        .format(st["reason"], ENV_DIR)
+    return "[engine] 运行方式不可用:{}".format(st["reason"])
 
 
 # ---------------------------------------------------------------------------

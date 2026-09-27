@@ -2,7 +2,8 @@
 """config_tool.engine_bridge 单元测试(2026-09-22 反向依赖收口)。
 
 钉住三件事:
-1. 引擎位置**只认显式声明** `CASE_ENGINE_DIR`(或调用方显式传入),不探测兄弟目录;
+1. 引擎位置按 **显式声明 → 环境变量 → 本地设置文件 → 自动发现** 解析(2026-09-27 起
+   后两条是默认兜底:环境变量不再是唯一途径);自动发现只认"确实含引擎包目录"的候选;
 2. 未声明 / 目录不存在 / 目录里没有引擎包 —— 一律 available=False + **可读原因**,
    绝不静默降级(这是产线铁律"不允许静默"的可执行断言);
 3. **引用面棘轮**:config_tool 里除 engine_bridge(及一处兼容别名)外,不得再出现
@@ -27,6 +28,10 @@ ENGINE_DIR = os.path.normpath(os.path.join(
 @pytest.fixture
 def no_env(monkeypatch):
     monkeypatch.delenv("CASE_ENGINE_DIR", raising=False)
+    # 关掉"设置文件 + 自动发现"两条兜底,让本组用例回到"纯未声明"的状态
+    # (2026-09-27 起两者是默认兜底;不关的话本机有相邻平台仓就会被自动发现)
+    monkeypatch.setattr(engine_bridge, "SETTING_FILE", "")
+    monkeypatch.setattr(engine_bridge, "auto_candidates", lambda: [])
 
 
 def test_unset_env_is_not_available_with_readable_reason(no_env):

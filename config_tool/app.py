@@ -47,27 +47,29 @@ app = FastAPI(title="MAVIS 角色配置工具")
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 # ---------------------------------------------------------------------------
-# 路径声明(**全部显式,不探测兄弟目录**)
+# 路径声明(解析顺序:显式参数 → 环境变量 → 本地设置文件 → 自动发现)
 #
 #   CASE_ENGINE_DIR    : 引擎包所在目录(引擎包目录的父目录)—— engine_bridge 解析
 #   MAVIS_PLATFORM_DIR : 平台仓根(产物落盘、地图、实时入口联动);未设时沿用
 #                        CASE_ENGINE_DIR(平台仓当前布局下二者同为同一目录)
 #   MAVIS_ASSETS_ROOT / MAVIS_SCENARIOS_DIR / MAVIS_MAZE_PATH : 逐项覆盖
 #
-# 未声明时:本工具**照常启动**,引擎/平台相关功能置灰,并在启动日志与页面上
-# 给出可读原因(绝不静默降级、绝不把产物写进当前工作目录)。
+# 2026-09-27:环境变量不再是**唯一**途径 —— 未设时依次尝试"本地设置文件"
+# (「运行方式」页里可填,落在 config_tool/.config_tool_dirs.json)与"自动发现"
+# (本工具相邻的平台仓常见位置、当前工作目录及其上溯,只认确实含引擎包目录者)。
+# 找到就写明**来源**;都没找到才置灰,并在启动日志与页面给出可读原因(不静默、不猜错)。
 # ---------------------------------------------------------------------------
 def _platform_dir() -> str:
-    """平台根目录:只认显式声明(MAVIS_PLATFORM_DIR → CASE_ENGINE_DIR),不做目录探测。"""
-    for key in ("MAVIS_PLATFORM_DIR", "CASE_ENGINE_DIR"):
-        val = str(os.environ.get(key) or "").strip()
-        if val:
-            return os.path.abspath(val)
-    return ""
+    """平台根:显式声明(MAVIS_PLATFORM_DIR → CASE_ENGINE_DIR)→ 设置文件 → 自动发现。"""
+    return engine_bridge.resolve_dir(
+        env_keys=("MAVIS_PLATFORM_DIR", engine_bridge.ENV_DIR),
+        setting_key="platform_dir",
+        marker=("frontend", engine_bridge.PKG))["dir"]     # 同时含前端与引擎包才算平台根
 
 
 _PLATFORM_DIR = _platform_dir()
-# 引擎目录**只认 CASE_ENGINE_DIR**(不拿平台根顶替:两者概念不同,可分别部署)
+# 引擎目录:显式声明(CASE_ENGINE_DIR)→ 设置文件 → 自动发现
+# (不拿平台根顶替:两者概念不同,可分别部署)
 _ENGINE_DIR = engine_bridge.engine_dir()
 VILLAGE_ROOT = os.environ.get("MAVIS_ASSETS_ROOT") or (
     os.path.join(_PLATFORM_DIR, "frontend", "static", "assets", "village")
@@ -85,19 +87,30 @@ MAZE_PATH = os.environ.get("MAVIS_MAZE_PATH") or (
 
 def runtime_status() -> dict:
     """引擎 + 平台目录的**实际解析结果**(启动横幅与页面横幅共用,便于人看清现状)。"""
-    st = engine_bridge.status(_ENGINE_DIR)
+    st = engine_bridge.status()          # 不传 explicit:让 status 报出真实来源
     st["env_var"] = engine_bridge.ENV_DIR
+    pst = engine_bridge.resolve_dir(
+        env_keys=("MAVIS_PLATFORM_DIR", engine_bridge.ENV_DIR),
+        setting_key="platform_dir", marker=("frontend", engine_bridge.PKG))
     st["platform"] = _PLATFORM_DIR
+    st["platform_source"] = pst["source"] if _PLATFORM_DIR else ""
     st["platform_reason"] = "" if _PLATFORM_DIR else (
-        "未声明平台目录:设置 {} 或 MAVIS_PLATFORM_DIR 指向平台仓根;"
+        "未找到平台目录:可在「运行方式」页填一次目录(存本地设置文件),或设 {} / MAVIS_PLATFORM_DIR;"
         "在此之前产物无法落盘、地图与实时入口联动不可用".format(engine_bridge.ENV_DIR))
     return st
 
 
 def _print_startup_banner() -> None:
     """启动即打印解析结果(成功与失败都可见)。"""
-    print(engine_bridge.banner(_ENGINE_DIR), flush=True)
-    print("[platform] 平台根 = {}".format(_PLATFORM_DIR or "(未声明)"), flush=True)
+    print(engine_bridge.banner(), flush=True)
+    _pst = engine_bridge.resolve_dir(
+        env_keys=("MAVIS_PLATFORM_DIR", engine_bridge.ENV_DIR),
+        setting_key="platform_dir", marker=("frontend", engine_bridge.PKG))
+    print("[platform] 平台根 = {}{}".format(
+        _PLATFORM_DIR or "(未找到)",
+        "  (来源:{})".format(_pst["source"]) if _PLATFORM_DIR else ""), flush=True)
+    print("[dirs] 本地设置文件 = {} (可在「运行方式」页填写;不入库)".format(
+        engine_bridge.SETTING_FILE), flush=True)
     print("[platform] 资源根 = {} ; 场景目录 = {} ; 地图 = {}".format(
         VILLAGE_ROOT or "(未声明)", SCENARIOS_DIR or "(未声明)",
         MAZE_PATH or "(未声明)"), flush=True)
@@ -830,9 +843,9 @@ def _engine_catalog() -> dict:
 
     引擎接触全部走 engine_bridge;不可用时返回 available=False + **可读原因**。
     """
-    st = engine_bridge.status(_ENGINE_DIR)
+    st = engine_bridge.status()
     out = {"available": False, "engines": [], "scenarios": [],
-           "reason": st["reason"], "dir": st["dir"]}
+           "reason": st["reason"], "dir": st["dir"], "source": st["source"]}
     if not st["available"]:
         return out
 
@@ -1170,6 +1183,7 @@ async def engines_page(request: Request):
     (引擎是运行策略,改它属于框架侧;本页只做展示 + 指路到「组合」页。)
     """
     cat = _engine_catalog()
+    rt = runtime_status()
     return templates.TemplateResponse(
         request, "engines.html",
         {"engines": cat.get("engines") or [],
@@ -1177,8 +1191,35 @@ async def engines_page(request: Request):
          "available": bool(cat.get("available")),
          "dir": cat.get("dir", ""),
          "reason": cat.get("reason", ""),
+         "source": rt.get("source", ""),
+         "platform_dir": rt.get("platform", ""),
+         "platform_source": rt.get("platform_source", ""),
+         "platform_reason": rt.get("platform_reason", ""),
+         "settings_file": engine_bridge.SETTING_FILE,
          "active": "engines"},
     )
+
+
+@app.post("/api/dirs")
+async def set_dirs(request: Request):
+    """保存"引擎/平台目录"到本地设置文件(免环境变量的页面设置入口)。
+
+    只写设置文件、**不热改本进程**(目录在 import 时解析);返回提示让用户重启。
+    body 用 "engine"/"platform" 两个键;空串表示清除该项。
+    """
+    body = await _json_body(request)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "errors": ["请求体应为 JSON 对象"]})
+    payload = {}
+    for key, setting_key in (("engine", "engine_dir"), ("platform", "platform_dir")):
+        if key in body:
+            payload[setting_key] = str(body.get(key) or "").strip()
+    if not payload:
+        return JSONResponse({"ok": False, "errors": ["缺少 engine / platform 字段"]})
+    path = engine_bridge.write_settings(**payload)
+    return JSONResponse({"ok": True, "saved": payload, "path": path,
+                         "note": "已保存到本地设置文件;重启本工具后生效"
+                                 "(当前进程仍按启动时的解析结果)"})
 
 
 @app.post("/api/run/execute")

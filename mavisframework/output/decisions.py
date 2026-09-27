@@ -55,7 +55,13 @@ def generate_decision_events(
     _ev_idx = 0
     for idx, fname in enumerate(files):
         with open(os.path.join(checkpoints_folder, fname), "r", encoding="utf-8") as f:
-            data = json.load(f)
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                # 半截快照(进程中断时 simulate 直写非原子)→ 跳过该文件,
+                # 不让一条坏档打崩整条决策流(与 internalization/load_tendency
+                # 系列读取方同策略,2026-09-27 体检补)
+                continue
         time_key = data.get("time", "")
         step = data.get("step", 0)
         involves = extract_involves(conversation, time_key)

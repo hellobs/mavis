@@ -22,6 +22,7 @@ Learn mavisframework from scratch (with runnable examples):
 | [Message Protocol](docs/tutorial-protocol-en.md) | agent/time/chat_line contract, validate_message |
 | [Decision Export](docs/tutorial-decisions-en.md) | simulation → decision event stream (for governance) |
 | [Extension Surface](docs/tutorial-extension-en.md) | the stable API integrators may rely on; defaults, limits, what to do when a new need appears |
+| [IVD Value Governance](docs/tutorial-ivd-en.md) | governance.json, ConsequenceEngine, value-tendency update math, intervention audit, sealed testing |
 
 Chinese versions in the [docs/ directory](docs/).
 
@@ -60,11 +61,11 @@ pip install -e .
 
 # Release/pinned version: build wheel and install
 pip install .                          # install from source directly
-python -m build && pip install dist/mavisframework-1.3.0-py3-none-any.whl
+python -m build && pip install dist/mavisframework-1.3.2-py3-none-any.whl
 
 # uv also works (optional; toolchain of your choice)
 # uv pip install -e .
-# uv build && uv pip install dist/mavisframework-1.3.0-py3-none-any.whl
+# uv build && uv pip install dist/mavisframework-1.3.2-py3-none-any.whl
 ```
 
 Runtime dependencies are only `pydantic>=2.0` and `requests>=2.31`; there are
@@ -222,6 +223,12 @@ simulated market later. Steady-state intuition: tendency converges to
 (weight × behavior–value coupling) normalized — institutional emphasis scales
 a value's share, but behavior that never touches a value cannot be pulled by
 weight alone (the boundary of governance).
+
+A step-by-step walkthrough (governance.json format, ConsequenceEngine,
+the update math with sealed test patterns, intervention audit format) lives in
+[docs/tutorial-ivd-en.md](docs/tutorial-ivd-en.md) (中文: [docs/tutorial-ivd.md](docs/tutorial-ivd.md)).
+Testing note: seal your tests — inject a fake scorer/consequence fn (see the
+tutorial's §6) so the suite never depends on a live embedding server.
 
 ## 8. Usage
 

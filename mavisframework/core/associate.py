@@ -157,9 +157,12 @@ class Associate:
         node = self._index.add_node(event.get_describe(), metadata)
         memory = self.memory[node_type]
         memory.insert(0, node.id_)
-        if len(memory) >= self.max_memory > 0:
+        if len(memory) > self.max_memory > 0:
+            # 差一修复(2026-09-27):原为 `>=` 触发 + 保留 `[:max-1]`,实际容量是
+            # max-1,且第 max 条在向量索引里成为孤儿(列表已丢、索引未删)。
+            # 语义改为:插入后保留最近 max_memory 条,索引与列表同步裁剪。
             self._index.remove_nodes(memory[self.max_memory:])
-            self.memory[node_type] = memory[: self.max_memory - 1]
+            self.memory[node_type] = memory[: self.max_memory]
         return self.to_concept(node)
 
     def to_concept(self, node):

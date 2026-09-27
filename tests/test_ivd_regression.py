@@ -8,6 +8,9 @@
 - 干预同步:get_constraints 反映治理层最新约束
 - 多轮体验收敛:倾向向新约束渐进收敛(不跳变)
 """
+import datetime
+import os
+
 import pytest
 
 from mavisframework.core.agent_core import Agent
@@ -418,3 +421,34 @@ class TestTendencyMathProperties:
             if i >= 15:
                 assert agent.status["tendency_meta"]["alpha"] == 0.1, "α 应触底下限 0.1"
         assert worst_err < 1e-9
+
+
+class TestMemoryTrimBoundary:
+    """记忆容量裁剪边界(2026-09-27 体检):max_memory=5 塞 8 条应剩 5。
+    原实现 `>=` 触发 + 保留 `[:max-1]`,实际容量少 1 且索引留孤儿。"""
+
+    def test_trim_keeps_exactly_max_memory(self, tmp_path):
+        from mavisframework.core.associate import Associate
+        from mavisframework.core.event import Event
+        assoc = Associate(os.path.join(str(tmp_path), "mem"),
+                          {"provider": "simple"}, max_memory=5)
+        now = datetime.datetime(2025, 2, 13, 9, 30)
+        for i in range(8):
+            ev = Event("环境", "事件", "e{}".format(i),
+                       describe="事件{}".format(i), address=["the Ville", "测试"])
+            assoc.add_node("event", ev, poignancy=1,
+                           create=now + datetime.timedelta(minutes=i))
+        assert len(assoc.memory["event"]) == 5
+
+    def test_unlimited_when_negative(self, tmp_path):
+        from mavisframework.core.associate import Associate
+        from mavisframework.core.event import Event
+        assoc = Associate(os.path.join(str(tmp_path), "mem"),
+                          {"provider": "simple"}, max_memory=-1)
+        now = datetime.datetime(2025, 2, 13, 9, 30)
+        for i in range(12):
+            ev = Event("环境", "事件", "e{}".format(i),
+                       describe="事件{}".format(i), address=["the Ville", "测试"])
+            assoc.add_node("event", ev, poignancy=1,
+                           create=now + datetime.timedelta(minutes=i))
+        assert len(assoc.memory["event"]) == 12, "max_memory<0 应不裁剪"

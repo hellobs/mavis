@@ -17,6 +17,7 @@
 | [消息协议](docs/tutorial-protocol.md) | agent/time/chat_line 等契约、validate_message |
 | [决策导出](docs/tutorial-decisions.md) | 模拟结果 → 决策事件流(供治理平台) |
 | [扩展面](docs/tutorial-extension.md) | 接入方可以依赖的稳定 API;默认值、已知限制、遇到新需求按什么顺序办 |
+| [基于 mavis 二次开发](docs/tutorial-integrator.md) | 四种接入形态的最小骨架(应用/插件包/前端/治理层)、你必须自己提供什么、常见坑 |
 
 英文版见 [docs/ 目录](docs/)(`*-en.md`)。
 
@@ -38,7 +39,8 @@ mavisframework 自身不装业务逻辑,接入方通过一小撮稳定的点接�
 两条都由 [`tests/test_extension_surface.py`](tests/test_extension_surface.py) 兜底,
 该文件同时锁住签名与默认值。加新能力之前先读
 [扩展面](docs/tutorial-extension.md):能用配置解决、能用既有扩展点解决、
-或能在接入方自己那边解决的,就不要动框架。
+或能在接入方自己那边解决的,就不要动框架。动手写接入方应用或插件包,直接看
+[基于 mavis 二次开发](docs/tutorial-integrator.md)(四种形态的最小骨架与常见坑)。
 
 ## 1. 安装
 

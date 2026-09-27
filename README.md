@@ -22,6 +22,7 @@ Learn mavisframework from scratch (with runnable examples):
 | [Message Protocol](docs/tutorial-protocol-en.md) | agent/time/chat_line contract, validate_message |
 | [Decision Export](docs/tutorial-decisions-en.md) | simulation → decision event stream (for governance) |
 | [Extension Surface](docs/tutorial-extension-en.md) | the stable API integrators may rely on; defaults, limits, what to do when a new need appears |
+| [Building on mavisframework](docs/tutorial-integrator-en.md) | minimal skeleton for each of the four integration shapes (app / plugin package / frontend / governance), what you must provide, common traps |
 | [IVD Value Governance](docs/tutorial-ivd-en.md) | governance.json, ConsequenceEngine, value-tendency update math, intervention audit, sealed testing |
 
 Chinese versions in the [docs/ directory](docs/).
@@ -47,7 +48,9 @@ Both are enforced by [`tests/test_extension_surface.py`](tests/test_extension_su
 which also pins signatures and defaults. Read
 [Extension Surface](docs/tutorial-extension-en.md) before adding a capability; if a need can
 be met by configuration, by an existing extension point, or inside the integrator itself,
-do that instead of changing the framework.
+do that instead of changing the framework. For hands-on skeletons (application / plugin
+package / frontend / governance layer), see
+[Building on mavisframework](docs/tutorial-integrator-en.md).
 
 ## 1. Installation
 

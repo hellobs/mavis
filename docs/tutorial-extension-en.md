@@ -12,6 +12,8 @@ surface — no framework change needed for most new needs.
 
 Companion: `tests/test_extension_surface.py` turns these points into contract tests
 (signatures, defaults, registries, purity), so framework edits break the tests first.
+For hands-on skeletons, read [Building on mavisframework](tutorial-integrator-en.md)
+(the four integration shapes, what you must provide yourself, common traps).
 
 ## 1. Overview
 

@@ -9,6 +9,8 @@ mavisframework 本身不装任何业务逻辑:角色、场景、剧情、外部�
 
 配套:`tests/test_extension_surface.py` 把这些点写成契约测试(签名、默认值、注册表、
 纯洁度),改框架时它会先炸。
+要动手写接入方应用或插件包,配合读 [基于 mavis 二次开发](tutorial-integrator.md)
+(四种形态的最小骨架、必须自己提供什么、常见坑)。
 
 ## 一、接入方式总览
 

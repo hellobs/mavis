@@ -2,9 +2,11 @@
 
 **实现侧的配套工具**:业务方通过网页表单填写角色/关系/剧情/场景,工具按 MAVIS 的
 Schema 生成标准 JSON/YAML 配置,经校验后写入运行方式加载目录。它**需要运行方式的配合**——
-运行方式注册表与 schema 校验、场景运行自检都来自引擎包;引擎包的位置由环境变量
-`CASE_ENGINE_DIR` **显式声明**(本工具不探测兄弟目录)。不设置也能启动,但运行方式相关
-功能(「运行方式」页、「组合」页的运行、运行方式 schema 深度校验)会**置灰并在页面上给出原因**。
+运行方式注册表与 schema 校验、场景运行自检都来自引擎包;引擎包的位置按
+**显式声明 → 环境变量 → 本地设置文件 → 自动发现** 解析(2026-09-27 起,`CASE_ENGINE_DIR`
+不再是唯一途径:把本工具放在平台仓旁即可,**无需设环境变量**)。四者都找不到时,运行方式
+相关功能(「运行方式」页、「组合」页的运行、运行方式 schema 深度校验)会**置灰并给出原因**,
+并可在页面的「目录设置」里补填一次目录。
 
 ## 定位
 
@@ -12,21 +14,21 @@ Schema 生成标准 JSON/YAML 配置,经校验后写入运行方式加载目录�
 - **Schema 单一来源**:复用 MAVIS 的 validator 与运行方式的 scenario schema,避免双份维护
 - **确定性映射**:表单字段一一对应 JSON/YAML,不做 AI 解析(保证配置可靠)
 - **角色/关系/剧情三者独立**:分别录入,互不耦合
-- **显式依赖**:运行方式与平台目录只认环境变量声明,找不到就**置灰 + 报原因**,绝不静默降级
+- **显式优先、兜底可发现**:解析顺序 = 显式声明 → 环境变量 → 本地设置文件 → 自动发现
+  (自动发现只认"确实含引擎包目录"的候选,并把**来源**写出来);都找不到才**置灰 + 报原因**
 
 ## 启动
 
 ```bash
 # 依赖:fastapi + uvicorn,以及能 import 到 mavisframework(同仓库源码即可)
-# 引擎包位置由 CASE_ENGINE_DIR 显式声明(= 引擎包 case_engine/ 的父目录)
 
-# 例 1(Windows,本机并列仓库布局,运行方式功能可用):
-cd D:\zzr\mavis\config_tool
-set CASE_ENGINE_DIR=D:\zzr\provenance\provenance
+# 推荐:什么都不用设。把本工具放在平台仓的相邻目录(mavis 与 provenance 同级),
+#       工具会**自动发现**平台仓(引擎包 case_engine/ 所在目录),并写明来源。
+cd <你克隆的 mavis>/config_tool
 python app.py
 
-# 例 2(不设 CASE_ENGINE_DIR):工具照常启动,运行方式功能置灰并显示原因
-cd D:\zzr\mavis\config_tool
+# 也可显式指定(环境变量优先于自动发现;也能在页面「目录设置」里填,存本地设置文件):
+set CASE_ENGINE_DIR=<平台仓>/provenance        # 引擎包 case_engine/ 的父目录
 python app.py
 ```
 
@@ -36,16 +38,17 @@ python app.py
 成功与失败都可见:
 
 ```
-[engine] 运行方式可用:CASE_ENGINE_DIR = D:\zzr\provenance\provenance(来源:参数)
-[platform] 平台根 = D:\zzr\provenance\provenance
-[platform] 资源根 = ...\frontend\static\assets\village ; 场景目录 = ...\scenarios ; 地图 = ...\case00\scenario\maze.json
+[engine] 运行方式可用:CASE_ENGINE_DIR = <平台仓>/provenance(来源:自动发现)
+[platform] 平台根 = <平台仓>/provenance  (来源:自动发现)
+[platform] 资源根 = ... ; 场景目录 = ... ; 地图 = ...
+[dirs] 本地设置文件 = <mavis>/config_tool/.config_tool_dirs.json (可在「运行方式」页填写;不入库)
 ```
 
-未设置时:
+四者都找不到时(页面会置灰并给出同样可读的原因):
 
 ```
-[engine] 运行方式不可用:未设置环境变量 CASE_ENGINE_DIR(运行方式相关功能不可用)(...)
-[platform] 平台根 = (未声明)
+[engine] 运行方式不可用:未找到引擎包目录(运行方式相关功能置灰):可在「运行方式」页填一次目录……
+[platform] 平台根 = (未找到)
 ```
 
 > 端口说明:8060 专用于 config 工具;5001(live 服务)与 5002(case01 只读数据服务)是平台侧端口,已占用,故本工具常驻 8060 避免冲突。
@@ -95,27 +98,28 @@ D:\zzr\provenance\provenance\scenarios\investment\relationships.json
 D:\zzr\provenance\provenance\scenarios\investment\story.json
 ```
 
-**路径声明(全部显式,不探测兄弟目录)**:
+**路径解析(顺序:显式参数 → 环境变量 → 本地设置文件 → 自动发现)**:
 
 | 环境变量 | 含义 | 不设置时 |
 |---|---|---|
-| `CASE_ENGINE_DIR` | **引擎包所在目录**(`case_engine/` 的父目录) | 运行方式功能全部置灰,页面显示"运行方式功能不可用:未设置 CASE_ENGINE_DIR" |
-| `MAVIS_PLATFORM_DIR` | 平台仓根(产物落盘/地图/实时入口联动) | 沿用 `CASE_ENGINE_DIR`(平台仓当前布局下二者为同一目录) |
+| `CASE_ENGINE_DIR` | **引擎包所在目录**(`case_engine/` 的父目录) | 依次尝试本地设置文件、自动发现;都没有才置灰,并提示在「运行方式」页补填 |
+| `MAVIS_PLATFORM_DIR` | 平台仓根(产物落盘/地图/实时入口联动) | 同 `CASE_ENGINE_DIR`(自动发现要求同时含 `frontend/` 与引擎包,避免认错仓) |
 | `MAVIS_ASSETS_ROOT` | 平台前端资源根(`frontend/static/assets/village`) | 由平台根推导 |
 | `MAVIS_SCENARIOS_DIR` | 平台场景目录(`scenarios`) | 由平台根推导 |
 | `MAVIS_MAZE_PATH` | 默认地图文件 | 优先平台根下 `case00/scenario/maze.json`,否则资源根下 `maze.json` |
 | `CASE_ENGINE_CASES_ROOT` | 场景根目录(实现侧同名变量) | 平台根下 `cases/` |
 
-> 2026-09-22 变更:以前 config_tool 会**探测**兄弟目录 `../provenance` 来定位平台与运行方式。
-> 探测靠猜、失败还静默降级,已移除;现在只认上表的显式声明。平台目录未声明时,产物
-> 不会写进当前工作目录 —— 保存接口直接返回可读错误。
+> 2026-09-22 与 2026-09-27 两次变更:① 以前靠**猜**兄弟目录 `../provenance`,靠猜、失败还静默
+> 降级 —— 已移除;② 但"只认环境变量"对第一次上手的人太苛刻(实测"开箱即废"),故补回
+> **可校验、可显示来源**的兜底:本地设置文件 + 自动发现(显式声明仍永远优先)。
+> 平台目录找不到时,产物不会写进当前工作目录 —— 保存接口直接返回可读错误。
 
 **角色产物附加处理**:
 - 自动补 `portrait` 字段,并从贴图池(`agents_pool/`,25 人历史贴图)按角色名哈希映射贴图
 - agent.json 记录 `texture_ref`(贴图来源,供 Unity 端同样处理)
 
-> 提示:提交角色后,重启仿真服务(5001)即可让新角色进入模拟;
-> 刷新 http://127.0.0.1:5001 可在画面中看到新角色。
+> 提示:提交角色后,重启实时服务(`python live_switch.py --start case00`,5010)即可让新角色进入模拟;
+> 刷新 http://127.0.0.1:5010 可在画面中看到新角色。
 
 ## API
 

@@ -58,7 +58,7 @@ from mavisframework.runtime.protocol import (
     validate_message,
 )
 
-__version__ = "1.3.2"
+__version__ = "1.3.3"
 
 __all__ = [
     # config

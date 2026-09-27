@@ -452,3 +452,53 @@ class TestMemoryTrimBoundary:
             assoc.add_node("event", ev, poignancy=1,
                            create=now + datetime.timedelta(minutes=i))
         assert len(assoc.memory["event"]) == 12, "max_memory<0 应不裁剪"
+
+
+class TestCorePathNotSilent:
+    """2026-09-27 体检:内化核心链的宽 except 必须留痕(此前静默 return/留空)。
+
+    背景:consequence_fn / goal_alignment 抛异常时旧实现直接 return/置空,不留任何
+    痕迹 —— "内化"结论可能建立在"其实没内化"之上而无人察知。这里用假 logger
+    直接断言"确实调用了 warning"(不依赖 logging 配置)。
+    """
+
+    @staticmethod
+    def _recorder():
+        got = []
+
+        class _Rec:
+            def warning(self, msg, **kw):
+                got.append(msg)
+            def info(self, *a, **k):
+                pass
+            def debug(self, *a, **k):
+                pass
+
+        return _Rec(), got
+
+    def test_consequence_fn_failure_is_logged(self):
+        agent = _mk_agent({"A": 0.5, "B": 0.5}, window_size=5)
+
+        def boom(self, desc):
+            raise RuntimeError("embedding 服务挂了")
+
+        _attach(agent, {"A": 0.5, "B": 0.5}, boom)
+        rec, got = self._recorder()
+        agent.logger = rec
+        agent.observe_consequence("do something")
+        assert any("consequence_fn 失败" in m for m in got), got
+        # 语义不变:反馈函数异常时倾向不更新(仍等于初始底色)
+        assert agent.value_tendency == {"A": 0.5, "B": 0.5}
+
+    def test_goal_alignment_failure_is_logged(self):
+        agent = _mk_agent({"A": 0.5, "B": 0.5}, window_size=5)
+        _attach(agent, {"A": 0.5, "B": 0.5}, lambda self, d: {"A": 0.5, "B": 0.5})
+
+        def bad_align(action):
+            raise RuntimeError("scorer 挂了")
+
+        agent.goal_alignment = bad_align
+        rec, got = self._recorder()
+        agent.logger = rec
+        agent.observe_consequence("do x")
+        assert any("goal_alignment 失败" in m for m in got), got

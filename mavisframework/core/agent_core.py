@@ -457,6 +457,9 @@ class Agent:
         try:
             feedback = fn(self, action_desc)  # {goal: 反馈值(0-1)}
         except Exception:
+            # 核心内化链不静默(2026-09-27 体检):反馈函数异常 → 本次倾向不会更新,
+            # 若不留痕,"内化"结论可能建立在"其实没内化"之上而无人察知。
+            self.logger.warning("consequence_fn 失败,本次倾向不更新", exc_info=True)
             return
         if not feedback:
             return
@@ -482,12 +485,15 @@ class Agent:
         try:
             _align = self.goal_alignment(action_desc) or {}
         except Exception:
+            self.logger.warning("goal_alignment 失败,本条对齐度留空", exc_info=True)
             _align = {}
         # 记录模拟时间(窗口明细按时间从早到晚展示;旧存档无 time 字段则留空)
         _w_time = ""
         try:
             _w_time = self._timer.get_date("%Y%m%d-%H:%M")
         except Exception:
+            # 良性回退(时间戳留空即可继续),debug 级留痕防逐步刷屏;仍不静默(2026-09-27)
+            self.logger.debug("取模拟时间失败,窗口时间戳留空", exc_info=True)
             _w_time = ""
         self._tendency_window.append({
             "action": action_desc,
@@ -509,6 +515,8 @@ class Agent:
         try:
             _now = self._timer.get_date()
         except Exception:
+            # 良性回退(age 按窗口位置估算),debug 级留痕;仍不静默(2026-09-27)
+            self.logger.debug("取当前时间失败,倾向 age 改按窗口位置估算", exc_info=True)
             _now = None
         # 各条目的 age 小时数(无 time 的旧条目:按窗口内位置估算年龄,
         # 最旧条目默认窗口跨度(如 15 条 × 平均 10min ≈ 2.5h),不精确但单调)

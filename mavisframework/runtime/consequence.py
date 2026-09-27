@@ -18,7 +18,10 @@
 相比关键词启发式:embedding 相似度连续、有区分度、语义更准——
 倾向曲线不再被"命中/未命中"二分锁死(平行),而随行动语义自然起伏。
 """
+import logging
 from typing import Dict
+
+log = logging.getLogger(__name__)
 
 
 class ConsequenceEngine:
@@ -99,6 +102,7 @@ class ConsequenceEngine:
             if agent is not None:
                 constraints = agent.get_constraints() or {}
         except Exception:
+            log.warning("agent.get_constraints() 失败,本次反馈目标集为空", exc_info=True)
             constraints = {}
         if not constraints:
             return {}

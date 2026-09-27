@@ -755,9 +755,11 @@ async def _json_body(request: Request) -> dict:
 
     以前裸 `await request.json()` 遇到空 body 直接 JSONDecodeError → 500,
     调用方(前端 fetch)只看到"内部错误",不知道是自己的表单没填。
+    (2026-09-27 体检修掉一处自递归笔误:函数体曾误写 `await _json_body(request)`,
+    任何 POST 的表单字段都被丢成 {} —— HTTP 层测试缺位导致 CI 未发现。)
     """
     try:
-        body = await _json_body(request)
+        body = await request.json()
     except Exception:      # noqa: BLE001 —— 没有 body 是正常的(空表单预检);坏 body 按空处理
         return {}
     return body if isinstance(body, dict) else {}

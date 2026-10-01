@@ -1,15 +1,52 @@
 # mavisframework
 
-English | [简体中文](./README_zh.md)
+**Every step of every agent — configurable, explainable, visualizable in real time.**
 
-A self-developed generative multi-agent simulation framework (MAVIS) for
-fine-grained business process simulation. Agents live, memorize, reflect,
-decide and interact within a spatial environment; every step is configurable,
-explainable and visualizable in real time.
+A self-developed generative multi-agent simulation framework (MAVIS) for fine-grained business process simulation. Agents live, memorize, reflect, decide and interact within a spatial environment. The framework layer has zero rendering dependencies (it does not embed Phaser, Unity, Flask or any frontend/server framework); frontends act purely as consumers of protocol messages. Integrators plug in through a small, stable set of extension points — the framework itself carries no business logic.
 
-The framework layer has zero rendering dependencies (it does not embed
-Phaser, Unity, Flask or any frontend/server framework); frontends act purely
-as consumers of protocol messages.
+[![Version](https://img.shields.io/badge/version-1.3.3-7c3aed?style=flat-square&labelColor=1f2328)](pyproject.toml) [![License](https://img.shields.io/badge/license-Apache--2.0-3b82f6?style=flat-square&labelColor=1f2328)](LICENSE) [![Python](https://img.shields.io/badge/python-%E2%89%A5%203.12-3776ab?style=flat-square&labelColor=1f2328)](pyproject.toml) [![Tests](https://img.shields.io/badge/tests-passing-2ea043?style=flat-square&labelColor=1f2328)](tests) [![Runtime deps](https://img.shields.io/badge/runtime%20deps-pydantic%20%2B%20requests-f59e0b?style=flat-square&labelColor=1f2328)](pyproject.toml) [![Extension surface](https://img.shields.io/badge/integrator%20surface-stable-009688?style=flat-square&labelColor=1f2328)](docs/tutorial-extension-en.md)
+
+**English** | [简体中文](./README_zh.md)
+
+---
+
+> **Abstract**
+>
+> mavisframework is a self-developed generative multi-agent simulation framework for fine-grained business process simulation. Agents live, memorize, reflect, decide and interact within a spatial environment; every step is configurable, explainable and visualizable in real time. The framework layer has zero rendering dependencies; its only runtime dependencies are `pydantic` and `requests`.
+>
+> The framework carries no business logic: integrators plug in through a small, stable set of extension points (`load_config` / `Game` / `Simulator` / the plugin surface). Two rules — **off by default** and **no business vocabulary in the source** — are enforced by `tests/test_extension_surface.py`. A real downstream build is [Provenance](https://github.com/hellobs/provenance) (the governance-platform reference implementation).
+>
+> → [7\. IVD: Value Formation & Governance](#7-ivd-value-formation--governance-experimental) ｜ [Extension surface](#-extension-surface-the-contract-with-integrators) ｜ [Building on mavisframework](docs/tutorial-integrator-en.md)
+
+**Scope**
+
+| Covered | Not covered |
+|---|---|
+| Full agent lifecycle (perception / memory / reflection / decision / interaction) Memory-store abstraction (SimpleStore, stdlib-only / LlamaIndexStore, vector) Space / collision / pathfinding / address index Message protocol (transport-agnostic; SSE or WebSocket) Decision-event export Generic plugin surface + three default-off injection hooks IVD governance layer (formation and observability of value tendency) | Any business logic (no case, role name or company name in the framework source) Rendering and frontends (Phaser / Unity are just shells consuming the protocol) A public service (`config_tool` is a local dev tool, **no authentication**) The LLM itself (only pluggable providers: Ollama / OpenAI) |
+
+**Before you start building, read [Extension Surface](docs/tutorial-extension-en.md) and [Building on mavisframework](docs/tutorial-integrator-en.md)** — minimal skeletons for the four integration shapes, what you must provide yourself, and common traps.
+
+---
+
+## Table of Contents
+
+* [📚 Documentation](#-documentation)
+* [📌 Extension surface (the contract with integrators)](#-extension-surface-the-contract-with-integrators)
+* [1\. Installation](#1-installation)
+* [2\. Top-Level API](#2-top-level-api)
+* [3\. Module Layout](#3-module-layout)
+* [4\. Environment Variables](#4-environment-variables)
+* [5\. Layering](#5-layering)
+* [6\. Message Protocol](#6-message-protocol)
+* [7\. IVD: Value Formation & Governance](#7-ivd-value-formation--governance-experimental)
+* [8\. Usage](#8-usage)
+* [9\. Unity Migration](#9-unity-migration)
+* [10\. Repository Layout](#10-repository-layout)
+* [11\. Status](#11-status)
+* [12\. Versioning](#12-versioning)
+* [13\. Security](#13-security)
+
+---
 
 ## 📚 Documentation
 
@@ -64,11 +101,11 @@ pip install -e .
 
 # Release/pinned version: build wheel and install
 pip install .                          # install from source directly
-python -m build && pip install dist/mavisframework-1.3.2-py3-none-any.whl
+python -m build && pip install dist/mavisframework-1.3.3-py3-none-any.whl
 
 # uv also works (optional; toolchain of your choice)
 # uv pip install -e .
-# uv build && uv pip install dist/mavisframework-1.3.2-py3-none-any.whl
+# uv build && uv pip install dist/mavisframework-1.3.3-py3-none-any.whl
 ```
 
 Runtime dependencies are only `pydantic>=2.0` and `requests>=2.31`; there are
@@ -251,8 +288,8 @@ framework route (FastAPI + WebSocket consuming framework contract messages).
   Business users fill role/duty/goal/relationship/story forms; it produces
   `agent.json` / `relationships.json` / `story.json` validated by this
   framework's validator, written into the Provenance platform's `agents/` and
-  `scenarios/` directories. Engine access lives in `config_tool/engine_bridge.py`
-  and requires `CASE_ENGINE_DIR`. See `config_tool/README.md`.
+  `scenarios/` directories. Engine access lives in `config_tool/engine_bridge.py`.
+  See `config_tool/README.md`.
 - **`../provenance/tools/tilemap_to_maze.py`** — CLI converter (Tiled map →
   `maze.json`) for the Provenance platform; no external deps. Its output is
   consumed by `mavisframework/scene/maze.py`. See
@@ -341,6 +378,9 @@ cleanup must add that map to their agent config.
 
 **Version history**:
 
+- `1.3.3` — config_tool auto-discovers directories (no environment variables needed); README synced.
+- `1.3.2` — IVD governance-layer tutorial docs (zh/en); Σ=1 conservation and tendency math pinned by tests; regression tests sealed with an injected `_NullScorer`.
+- `1.3.1` — config_tool security patch: role-name/case_id path guards + request-body tolerance.
 - `1.3.0` — always-on idle text becomes a single overridable source (`mavisframework.idle_text`,
   config keys `idle_text` / `idle_text_map`); no top-level API signature removed.
 - `1.2.1` — absolute `assets_root` resolution fix (root/drive no longer swallowed).
@@ -356,7 +396,9 @@ cleanup must add that map to their agent config.
   its `requirements.txt`; `pyproject.toml` in this repo is the single source of
   truth for the version, updated together at each release
 
-## 13. Security (2026-09-23)
+## 13. Security
+
+(2026-09-23)
 
 `config_tool/` is a **local development tool**, not a service: it writes role/scenario
 files directly and exposes 13 write endpoints (`/api/scenario/save`, `/api/run/execute`,
@@ -371,3 +413,7 @@ do not place it anywhere reachable from a network.
   `tests/test_engine_bridge.py`); sibling directories are never probed.
 - Tests: `tests/test_config_tool_name_guard.py` (including "nothing is written before
   the name is rejected").
+
+## License
+
+Apache License 2.0, see [LICENSE](LICENSE).

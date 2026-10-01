@@ -1,72 +1,115 @@
 # mavisframework
 
-[English](./README.md) | 简体中文
+**让每一个智能体的每一步都可配置、可解释、可实时可视化。**
 
-自研生成式智能体仿真框架(MAVIS),面向"精细化业务推演"。Agent 在空间环境中自主生活、记忆、反思、决策与交互,每一步均可配置、可解释、可实时可视化。
+自研生成式智能体仿真框架（MAVIS），面向"精细化业务推演"。Agent 在空间环境中自主生活、记忆、反思、决策与交互；框架层保持零渲染依赖（不嵌入 Phaser / Unity / Flask 等前端或服务端框架），前端仅作为协议消息的消费端。接入方通过一小撮稳定的扩展点接进来，框架自身不装业务逻辑。
 
-框架层保持零渲染依赖(不嵌入 Phaser / Unity / Flask 等前端或服务端框架),前端仅作为协议消息的消费端。
+[![Version](https://img.shields.io/badge/version-1.3.3-7c3aed?style=flat-square&labelColor=1f2328)](pyproject.toml) [![License](https://img.shields.io/badge/license-Apache--2.0-3b82f6?style=flat-square&labelColor=1f2328)](LICENSE) [![Python](https://img.shields.io/badge/python-%E2%89%A5%203.12-3776ab?style=flat-square&labelColor=1f2328)](pyproject.toml) [![Tests](https://img.shields.io/badge/tests-passing-2ea043?style=flat-square&labelColor=1f2328)](tests) [![Runtime deps](https://img.shields.io/badge/runtime%20deps-pydantic%20%2B%20requests-f59e0b?style=flat-square&labelColor=1f2328)](pyproject.toml) [![Extension surface](https://img.shields.io/badge/integrator%20surface-stable-009688?style=flat-square&labelColor=1f2328)](docs/tutorial-extension.md)
+
+[English](./README.md) | **简体中文**
+
+---
+
+> **摘要**
+>
+> mavisframework 是一套自研生成式智能体仿真框架，面向"精细化业务推演"。Agent 在空间环境中自主生活、记忆、反思、决策与交互，每一步可配置、可解释、可实时可视化。框架层零渲染依赖，运行依赖仅 `pydantic` 与 `requests`。
+>
+> 框架自身不装业务逻辑：接入方通过 `load_config` / `Game` / `Simulator` / 插件面等一小撮稳定扩展点接进来，两条硬约定（新增能力**默认关闭**、源码**零业务词汇**）由 `tests/test_extension_surface.py` 兜底。真实的下游落地案例见 [Provenance](https://github.com/hellobs/provenance)（治理平台参考实现）。
+>
+> → [7\. IVD：价值形成与治理](#7-ivd价值形成与治理实验性) ｜ [扩展面（与接入方的合同）](#-扩展面与接入方的合同) ｜ [基于 mavis 二次开发](docs/tutorial-integrator.md)
+
+**范围界定**
+
+| 本框架覆盖 | 本框架不覆盖 |
+|---|---|
+| Agent 完整生命周期（感知 / 记忆 / 反思 / 决策 / 交互） 记忆存储抽象（SimpleStore 纯 stdlib / LlamaIndexStore 向量） 空间 / 碰撞 / 寻路 / 地址索引 消息协议（transport-agnostic，SSE/WebSocket 均可） 决策事件导出 通用插件面 + 三条默认关闭的注入钩子 IVD 治理层（价值倾向的形成与可观测） | 任何业务逻辑（case、角色名、公司名不进框架源码） 渲染与前端（Phaser / Unity 只是消费协议的壳） 对外服务（`config_tool` 是本机开发工具，**无鉴权**） LLM 本体（只做可插拔 Provider 接入：Ollama / OpenAI） |
+
+**接入方动手前请先读 [扩展面](docs/tutorial-extension.md) 与 [基于 mavis 二次开发](docs/tutorial-integrator.md)** —— 四种接入形态的最小骨架、你必须自己提供什么、常见坑，都在里面。
+
+---
+
+## 目录
+
+* [📚 文档](#-文档)
+* [📌 扩展面（与接入方的合同）](#-扩展面与接入方的合同)
+* [1\. 安装](#1-安装)
+* [2\. 顶层 API](#2-顶层-api)
+* [3\. 模块结构](#3-模块结构)
+* [4\. 环境变量](#4-环境变量)
+* [5\. 分层关系](#5-分层关系)
+* [6\. 消息协议](#6-消息协议)
+* [7\. IVD：价值形成与治理](#7-ivd价值形成与治理实验性)
+* [8\. 使用方式](#8-使用方式)
+* [9\. Unity 迁移](#9-unity-迁移)
+* [10\. 仓库结构](#10-仓库结构)
+* [11\. 状态](#11-状态)
+* [12\. 版本管理](#12-版本管理)
+* [13\. 安全](#13-安全)
+
+---
 
 ## 📚 文档
 
-从零开始学习 mavisframework(带可运行示例):
+从零开始学习 mavisframework（带可运行示例）：
 
 | 教程 | 内容 |
 |---|---|
 | [配置加载与校验](docs/tutorial-config.md) | 角色/场景配置、load_config、validate_all |
-| [运行时:Game 与 Simulator](docs/tutorial-game.md) | 创建角色、接入 LLM、跑一步模拟 |
+| [运行时：Game 与 Simulator](docs/tutorial-game.md) | 创建角色、接入 LLM、跑一步模拟 |
 | [消息协议](docs/tutorial-protocol.md) | agent/time/chat_line 等契约、validate_message |
-| [决策导出](docs/tutorial-decisions.md) | 模拟结果 → 决策事件流(供治理平台) |
-| [扩展面](docs/tutorial-extension.md) | 接入方可以依赖的稳定 API;默认值、已知限制、遇到新需求按什么顺序办 |
-| [基于 mavis 二次开发](docs/tutorial-integrator.md) | 四种接入形态的最小骨架(应用/插件包/前端/治理层)、你必须自己提供什么、常见坑 |
+| [决策导出](docs/tutorial-decisions.md) | 模拟结果 → 决策事件流（供治理平台） |
+| [扩展面](docs/tutorial-extension.md) | 接入方可以依赖的稳定 API；默认值、已知限制、遇到新需求按什么顺序办 |
+| [基于 mavis 二次开发](docs/tutorial-integrator.md) | 四种接入形态的最小骨架（应用/插件包/前端/治理层）、你必须自己提供什么、常见坑 |
+| [IVD 价值治理](docs/tutorial-ivd.md) | governance.json、ConsequenceEngine、倾向更新数学、干预审计、密封测试 |
 
-英文版见 [docs/ 目录](docs/)(`*-en.md`)。
+英文版见 [docs/ 目录](docs/)（`*-en.md`）。
 
-## 📌 扩展面(与接入方的合同)
+## 📌 扩展面（与接入方的合同）
 
-mavisframework 自身不装业务逻辑,接入方通过一小撮稳定的点接进来:
+mavisframework 自身不装业务逻辑，接入方通过一小撮稳定的点接进来：
 `load_config(...)`、`Game(..., timer=, governance=)`、
 `Simulator(..., external_state=, interaction_request=, on_agent=, on_step=, on_story=, plugins=)`、
 `Simulator.register_condition(...)`、角色字段 `role_directive` / `think.llm`、
-`Agent` 的公开方法、进程级 `agent_core.chat_callback`(老写法直接赋值仍有效;
-新增 `subscribe_chat_line` 支持多订阅者),以及通用插件面
-`Plugin` / `PluginManager`(通过入口点组 `mavisframework.plugins` 发现)。
+`Agent` 的公开方法、进程级 `agent_core.chat_callback`（老写法直接赋值仍有效；
+新增 `subscribe_chat_line` 支持多订阅者），以及通用插件面
+`Plugin` / `PluginManager`（通过入口点组 `mavisframework.plugins` 发现）。
 
-两条硬约定保证框架对所有人可用:
+两条硬约定保证框架对所有人可用：
 
-1. **默认关闭**:新增的可选能力参数默认 `None` / `False` / 空串;不配置时行为与历史版本逐位一致。
-2. **源码零业务词汇**:不出现 case01、角色名、公司名等;通用演示词汇不算越界。
+1. **默认关闭**：新增的可选能力参数默认 `None` / `False` / 空串；不配置时行为与历史版本逐位一致。
+2. **源码零业务词汇**：不出现 case01、角色名、公司名等；通用演示词汇不算越界。
 
-两条都由 [`tests/test_extension_surface.py`](tests/test_extension_surface.py) 兜底,
+两条都由 [`tests/test_extension_surface.py`](tests/test_extension_surface.py) 兜底，
 该文件同时锁住签名与默认值。加新能力之前先读
-[扩展面](docs/tutorial-extension.md):能用配置解决、能用既有扩展点解决、
-或能在接入方自己那边解决的,就不要动框架。动手写接入方应用或插件包,直接看
-[基于 mavis 二次开发](docs/tutorial-integrator.md)(四种形态的最小骨架与常见坑)。
+[扩展面](docs/tutorial-extension.md)：能用配置解决、能用既有扩展点解决、
+或能在接入方自己那边解决的，就不要动框架。动手写接入方应用或插件包，直接看
+[基于 mavis 二次开发](docs/tutorial-integrator.md)（四种形态的最小骨架与常见坑）。
 
 ## 1. 安装
 
-mavisframework 是标准 Python 包(pyproject.toml + setuptools),Python ≥ 3.12。
+mavisframework 是标准 Python 包（pyproject.toml + setuptools），Python ≥ 3.12。
 支持 pip / uv / poetry 任意工具链。
 
 ```bash
-# 开发/协作期:可编辑安装(改框架代码即时生效;本仓库更新后 git pull 即可,无需重装)
+# 开发/协作期：可编辑安装（改框架代码即时生效；本仓库更新后 git pull 即可，无需重装）
 pip install -e .
 
-# 或构建 wheel 后安装(发布期/冻结版本)
+# 或构建 wheel 后安装（发布期/冻结版本）
 pip install .                          # 直接装源码
-python -m build && pip install dist/mavisframework-1.3.0-py3-none-any.whl
+python -m build && pip install dist/mavisframework-1.3.3-py3-none-any.whl
 
-# uv 亦可(可选,工具链自选)
+# uv 亦可（可选，工具链自选）
 # uv pip install -e .
-# uv build && uv pip install dist/mavisframework-1.3.0-py3-none-any.whl
+# uv build && uv pip install dist/mavisframework-1.3.3-py3-none-any.whl
 ```
 
-运行依赖仅 `pydantic>=2.0` 与 `requests>=2.31`,无 AI 或渲染框架的硬依赖。
-LLM 通过可插拔 Provider(Ollama / OpenAI)接入,非强制——但**运行模拟必须有 LLM**,
+运行依赖仅 `pydantic>=2.0` 与 `requests>=2.31`，无 AI 或渲染框架的硬依赖。
+LLM 通过可插拔 Provider（Ollama / OpenAI）接入，非强制——但**运行模拟必须有 LLM**，
 未配置时会抛出明确错误提示配置大模型。
 
 ## 2. 顶层 API
 
-`mavisframework` 包暴露常用入口,使用方无需深入内部子模块:
+`mavisframework` 包暴露常用入口，使用方无需深入内部子模块：
 
 ```python
 import mavisframework as mf
@@ -90,7 +133,7 @@ from mavisframework import Agent, Timer, Maze
 ```
 
 完整符号清单见 `mavisframework/__init__.py` 的 `__all__`。内部子模块路径
-(`mavisframework.config.loader` 等)仍可继续使用。
+（`mavisframework.config.loader` 等）仍可继续使用。
 
 ## 3. 模块结构
 
@@ -149,7 +192,7 @@ frontend/unity      前端壳(规划中,WebSocket 消费同一协议)
 
 ## 6. 消息协议
 
-定义于 `runtime/protocol.py`,坐标一律为格子坐标,传输与具体通道无关(SSE / WebSocket 均可)。
+定义于 `runtime/protocol.py`，坐标一律为格子坐标，传输与具体通道无关（SSE / WebSocket 均可）。
 
 | 消息 | 用途 | 消费者 |
 |---|---|---|
@@ -159,34 +202,41 @@ frontend/unity      前端壳(规划中,WebSocket 消费同一协议)
 | `SnapshotMsg` | 全量快照 | 新连接追赶 |
 | `DecisionEvent` | 决策事件 | 决策平台/专家界面 |
 
-## 7. IVD:价值形成与治理(实验性)
+## 7. IVD：价值形成与治理（实验性）
 
-框架支持治理层:agent 的*价值倾向*(从体验中内化的结果)可被观察,并由外部*制度约束*影响——不直接操控行为。
+框架支持治理层：agent 的*价值倾向*（从体验中内化的结果）可被观察，并由外部*制度约束*影响——不直接操控行为。
 
-塑造 `value_tendency`(归一化的 `{目标: 权重}` 映射)的三个来源:
+塑造 `value_tendency`（归一化的 `{目标: 权重}` 映射）的三个来源：
 
 | 来源 | 位置 | 作用 |
 |---|---|---|
-| `initial_tendency` | `agent.json`(AI 本体) | 人物初始底色——"这个 AI 是谁"(如:冲动型散户) |
-| 约束 | `governance.json`(制度层) | 制度期望(专家可调) |
+| `initial_tendency` | `agent.json`（AI 本体） | 人物初始底色——"这个 AI 是谁"（如：冲动型散户） |
+| 约束 | `governance.json`（制度层） | 制度期望（专家可调） |
 | 体验 | `ConsequenceEngine` 反馈 → 滑动窗口 | AI 从行动结果中学到什么 |
 
-关键语义:
+关键语义：
 
-- **ai_tool 角色**(如 AI 投顾产品)起点 = 约束:制度"制造"了它。**user 角色**起点 = `initial_tendency` 人物底色(未配置则为均匀),再由体验调制。
-- **惯性混合**:`倾向 = α×底色 + (1−α)×体验`,过渡期自适应绑定记忆窗口容量 —— `α = max(0.1, 1 − 体验次数/窗口容量)`,`window_size` 即 `think.tendency_window`(默认 15)。过渡期 ≈ 一趟装满体验记忆窗口所需的观测数(而非魔法数) —— 窗口越小过渡越快,越大越缓慢。下限 0.1 保证性格保留 10% 残余(性格有粘性)。每次更新会把当前 `α`/衰减分母/体验计数写入 `tendency_meta`,供审计与"内化过渡程度"可解释。
-- **采样**:反馈在*行动变化点*以及*周期性刷新*(`tendency_refresh`,默认 5 步)时计入,持续行动仍会强化倾向,曲线不冻结。
-- **约束是期望,不是控制**:约束不进提示词、不强制重生成行为。它只加权后果反馈,因此专家调整约束的效果,只能通过后续体验被 agent 感知(滞后收敛 = 内化证据)。
-- **可审计**:`goal_alignment`(即时)、`value_tendency`(累积)、`interventions.json`(专家编辑,含每次干预的模拟时间)均导出供审计。
-- **续跑连续性**:`--resume` 从检查点恢复 `value_tendency` 与体验计数(而非重置回人物底色),倾向曲线跨重启连续,惯性系数 α 不回退。
+- **ai_tool 角色**（如 AI 投顾产品）起点 = 约束：制度"制造"了它。**user 角色**起点 = `initial_tendency` 人物底色（未配置则为均匀），再由体验调制。
+- **惯性混合**：`倾向 = α×底色 + (1−α)×体验`，过渡期自适应绑定记忆窗口容量 —— `α = max(0.1, 1 − 体验次数/窗口容量)`，`window_size` 即 `think.tendency_window`（默认 15）。过渡期 ≈ 一趟装满体验记忆窗口所需的观测数（而非魔法数） —— 窗口越小过渡越快，越大越缓慢。下限 0.1 保证性格保留 10% 残余（性格有粘性）。每次更新会把当前 `α`/衰减分母/体验计数写入 `tendency_meta`，供审计与"内化过渡程度"可解释。
+- **采样**：反馈在*行动变化点*以及*周期性刷新*（`tendency_refresh`，默认 5 步）时计入，持续行动仍会强化倾向，曲线不冻结。
+- **约束是期望，不是控制**：约束不进提示词、不强制重生成行为。它只加权后果反馈，因此专家调整约束的效果，只能通过后续体验被 agent 感知（滞后收敛 = 内化证据）。
+- **可审计**：`goal_alignment`（即时）、`value_tendency`（累积）、`interventions.json`（专家编辑，含每次干预的模拟时间）均导出供审计。
+- **续跑连续性**：`--resume` 从检查点恢复 `value_tendency` 与体验计数（而非重置回人物底色），倾向曲线跨重启连续，惯性系数 α 不回退。
 
-后果反馈用 embedding 度量行动文本与各约束目标的语义相似度,取相对占比(softmax 式)后按约束加权——作为市场模型的轻量替代(见 `runtime/consequence.py`)。接口是普通可调用对象 `(agent, action_desc) -> {goal: feedback}`,后续可替换为真实模拟市场。稳态直觉:倾向收敛于(权重 × 行为-价值耦合度)归一化——制度权重放大某价值的份额,但行为从未触及的价值,单靠权重拉不动(治理的边界)。
+后果反馈用 embedding 度量行动文本与各约束目标的语义相似度，取相对占比（softmax 式）后按约束加权——作为市场模型的轻量替代（见 `runtime/consequence.py`）。接口是普通可调用对象 `(agent, action_desc) -> {goal: feedback}`，后续可替换为真实模拟市场。稳态直觉：倾向收敛于（权重 × 行为-价值耦合度）归一化——制度权重放大某价值的份额，但行为从未触及的价值，单靠权重拉不动（治理的边界）。
+
+完整的分步讲解（governance.json 格式、ConsequenceEngine、倾向更新数学与密封测试写法、干预审计格式）见 [docs/tutorial-ivd.md](docs/tutorial-ivd.md)（英文：[docs/tutorial-ivd-en.md](docs/tutorial-ivd-en.md)）。测试提示：密封你的测试——注入一个假的 scorer/consequence 函数（见教程 §6），让套件不依赖活的 embedding 服务。
 
 ## 8. 使用方式
 
-框架 `Game` + `Simulator` + `LiveCompressor` 驱动完整模拟(并行思考/存档/决策导出/WebSocket 推送)。项目已移除旧实现(`modules/`,以及 `start.py`/`live.py`/`compress.py`/`replay.py`),全部逻辑在框架内,可在 git 历史中回退查看。
+框架 `Game` + `Simulator` + `LiveCompressor` 驱动完整模拟（并行思考/存档/决策导出/WebSocket 推送）。项目已移除旧实现（`modules/`，以及 `start.py`/`live.py`/`compress.py`/`replay.py`），全部逻辑在框架内，可在 git 历史中回退查看。
 
-完整演示平台见 [Provenance](https://github.com/hellobs/provenance):其实时服务 `live_fastapi.py` 即框架路线的参考实现(FastAPI + WebSocket 消费框架契约消息)。
+完整演示平台见 [Provenance](https://github.com/hellobs/provenance)：其实时服务 `live_fastapi.py` 即框架路线的参考实现（FastAPI + WebSocket 消费框架契约消息）。
+
+### 8.1 本仓配套工具
+
+- **`config_tool/`** —— 表单式角色/场景配置生成器（端口 8060）。业务用户填角色/职责/目标/关系/剧情表单，工具产出经本框架 validator 校验的 `agent.json` / `relationships.json` / `story.json`，写入 Provenance 平台的 `agents/` 与 `scenarios/` 目录。运行方式接触点收敛在 `config_tool/engine_bridge.py`。详见 `config_tool/README.md`。
+- **`../provenance/tools/tilemap_to_maze.py`** —— CLI 转换器（Tiled 地图 → `maze.json`），无外部依赖，产物由 `mavisframework/scene/maze.py` 消费。详见 `../provenance/tools/tilemap_to_maze_README.md`。
 
 ## 9. Unity 迁移
 
@@ -197,7 +247,7 @@ frontend/unity      前端壳(规划中,WebSocket 消费同一协议)
 前端:Phaser → Unity                    ← 仅更换渲染层(消费同一协议)
 ```
 
-框架层不感知前端的具体实现,这是"Phaser 不嵌入框架"的结构保证。
+框架层不感知前端的具体实现，这是"Phaser 不嵌入框架"的结构保证。
 
 ## 10. 仓库结构
 
@@ -209,16 +259,16 @@ config_tool/             # 角色配置工具(独立 FastAPI 服务)
 pyproject.toml           # 包构建配置(uv build / uv pip install)
 ```
 
-config_tool 是**实现侧的配套工具**:它需要用运行方式的注册表与 schema 做校验/运行自检,产物(角色/关系/剧情/场景)写入平台的前端资源与场景目录。运行方式与平台的位置**只认显式声明**(2026-09-22 起不再探测兄弟目录 `../provenance`):
+config_tool 是**实现侧的配套工具**：它需要用运行方式的注册表与 schema 做校验/运行自检，产物（角色/关系/剧情/场景）写入平台的前端资源与场景目录。运行方式与平台的位置**只认显式声明**（2026-09-22 起不再探测兄弟目录 `../provenance`）：
 
-- `CASE_ENGINE_DIR` — **引擎包所在目录**(`case_engine/` 的父目录);不设置则工具照常启动,但运行方式相关功能(「运行方式」页、「组合」页运行、schema 深度校验)置灰并在页面与启动日志里给出原因
-- `MAVIS_PLATFORM_DIR` — 平台仓根(产物落盘/地图/实时入口联动);未设置时沿用 `CASE_ENGINE_DIR`
-- `MAVIS_ASSETS_ROOT` — 平台前端资源根(`frontend/static/assets/village`)
-- `MAVIS_SCENARIOS_DIR` — 平台场景目录(`scenarios`)
+- `CASE_ENGINE_DIR` — **引擎包所在目录**（`case_engine/` 的父目录）；不设置则工具照常启动，但运行方式相关功能（「运行方式」页、「组合」页运行、schema 深度校验）置灰并在页面与启动日志里给出原因
+- `MAVIS_PLATFORM_DIR` — 平台仓根（产物落盘/地图/实时入口联动）；未设置时沿用 `CASE_ENGINE_DIR`
+- `MAVIS_ASSETS_ROOT` — 平台前端资源根（`frontend/static/assets/village`）
+- `MAVIS_SCENARIOS_DIR` — 平台场景目录（`scenarios`）
 - `MAVIS_MAZE_PATH` — 默认地图文件
-- `CASE_ENGINE_CASES_ROOT` — 场景根目录(实现侧同名变量)
+- `CASE_ENGINE_CASES_ROOT` — 场景根目录（实现侧同名变量）
 
-启动示例(Windows):
+启动示例（Windows）：
 
 ```bat
 cd D:\zzr\mavis\config_tool
@@ -226,52 +276,60 @@ set CASE_ENGINE_DIR=D:\zzr\provenance\provenance
 python app.py            :: 服务地址 http://127.0.0.1:8060/
 ```
 
-与运行方式的全部接触收敛在 `config_tool/engine_bridge.py` 一个模块;其余模块只调它,详见 `config_tool/README.md`。
+与运行方式的全部接触收敛在 `config_tool/engine_bridge.py` 一个模块；其余模块只调它，详见 `config_tool/README.md`。
 
 ## 11. 状态
 
-- 已完成:protocol / core / scene(maze) / runtime(llm, simulator) / output(decisions) / config(loader, validator)
-- 框架可独立运行:Agent 完整生命周期、记忆存储(SimpleStore / LlamaIndexStore 可选)、提示词系统均不依赖外部模块
-- 平台消费:Provenance 平台的实时服务由框架 Game + Simulator 驱动,决策导出接入管线
-- 后续:业务层配置生效(关系注入/剧情注入)、Unity 前端
+- 已完成：protocol / core / scene(maze) / runtime(llm, simulator) / output(decisions) / config(loader, validator)
+- 框架可独立运行：Agent 完整生命周期、记忆存储（SimpleStore / LlamaIndexStore 可选）、提示词系统均不依赖外部模块
+- 平台消费：Provenance 平台的实时服务由框架 Game + Simulator 驱动，决策导出接入管线
+- 后续：业务层配置生效（关系注入/剧情注入）、Unity 前端
 
 ## 12. 版本管理
 
-**API 稳定承诺**:顶层 API(见第 2 节)一旦发布即保持兼容。新增能力不破坏既有签名;确需破坏性改动时,必须升主版本号并在此文档注明迁移方式。
+**API 稳定承诺**：顶层 API（见第 2 节）一旦发布即保持兼容。新增能力不破坏既有签名；确需破坏性改动时，必须升主版本号并在此文档注明迁移方式。
 
-**语义化版本**([semver](https://semver.org/)):
+**语义化版本**（[semver](https://semver.org/)）：
 
 | 变更类型 | 版本示例 |
 |---|---|
 | 破坏性 API 变更 | 2.0.0 |
-| 新增功能(向后兼容) | 1.1.0 |
-| Bug 修复(向后兼容) | 1.0.1 |
+| 新增功能（向后兼容） | 1.1.0 |
+| Bug 修复（向后兼容） | 1.0.1 |
 
-**更新链路**(使用方):
-
-- **开发/协作期**:以 `pip install -e .` 安装;本仓库更新后 `git pull`,代码即时生效,无需重装
-- **发布期**:按 semver 升版本号并构建 wheel;使用方更新 `requirements.txt` 中的
-  `mavisframework==X.Y.Z` 后重新安装
-- **版本同步**:平台(Provenance)通过 `requirements.txt` 固定依赖版本;框架仓库
-  的 `pyproject.toml` 是版本唯一来源,发布时同步更新
+**行为说明（1.3.0）**：全天在线（"no_sleep"）角色的空闲文案不再写死在框架里。它现在来自单一可覆盖来源（`mavisframework.idle_text`），并可按场景用 `config["idle_text"]` 覆盖；对历史存档中文空闲串的清洗需要显式给出映射表 `config["idle_text_map"] = {"<旧片段>": "<替换>"}`（默认为空 = 不改写任何东西）。依赖旧版"无条件清洗"的接入方，需在自己的角色配置里补上这张表。
 
 **版本历史**：
 
-- `1.3.0` —— 全天在线角色的空闲文案收敛为单一可覆盖来源（`mavisframework.idle_text`，配置键
-  `idle_text` / `idle_text_map`）；未删除任何顶层 API 签名。迁移：旧的硬编码中文空闲文案清洗改为
-  由 `idle_text_map` 注入，缺省不改写。
+- `1.3.3` —— config_tool 目录自动发现（免环境变量）；README 同步。
+- `1.3.2` —— IVD 治理层教学文档（中英）；Σ=1 守恒与倾向数学的测试固化；回归测试注入 `_NullScorer` 密封。
+- `1.3.1` —— config_tool 安全面补丁：角色名/case_id 路径守卫 + 请求体容错。
+- `1.3.0` —— 全天在线角色的空闲文案收敛为单一可覆盖来源（`mavisframework.idle_text`，配置键 `idle_text` / `idle_text_map`）；未删除任何顶层 API 签名。迁移：旧的硬编码中文空闲文案清洗改为由 `idle_text_map` 注入，缺省不改写。
 - `1.2.1` —— 修绝对 `assets_root` 解析（不再吞掉根/盘符）。
 - `1.2.0` —— 通用插件面 + 三处默认关闭的注入钩子。
 
-## 13. 安全(2026-09-23)
+**更新链路**（使用方）：
 
-`config_tool/` 是**本机开发工具**,不是对外服务:它按表单直接写角色/场景文件,还有
-`/api/scenario/save`、`/api/run/execute`、`/api/agent/delete` 等 13 个写端点,且**没有鉴权**。
-所以它默认绑 `127.0.0.1`,**不要**把它放进任何对外可访问的网络位置。
+- **开发/协作期**：以 `pip install -e .` 安装；本仓库更新后 `git pull`，代码即时生效，无需重装
+- **发布期**：按 semver 升版本号并构建 wheel；使用方更新 `requirements.txt` 中的
+  `mavisframework==X.Y.Z` 后重新安装
+- **版本同步**：平台（Provenance）通过 `requirements.txt` 固定依赖版本；框架仓库
+  的 `pyproject.toml` 是版本唯一来源，发布时同步更新
 
-- **角色名守卫**:`_safe_agent_name()` —— 角色名不许含路径分隔符、冒号或 `.`/`..`。
-  此前 `save_agent()` / `upgrade_agent()` 只去掉制表符/换行,名字里带 `..\..` 能在
-  `AGENTS_ROOT` 之外建目录并写 `agent.json`(`delete_agent` 早有守卫,这两处漏了)。
-- 运行方式位置只认显式 `CASE_ENGINE_DIR`(见 `tests/test_engine_bridge.py`),不探测兄弟目录。
-- 测试:`tests/test_config_tool_name_guard.py`(含"拒绝之前不许落盘"的断言)。
+## 13. 安全
 
+（2026-09-23）
+
+`config_tool/` 是**本机开发工具**，不是对外服务：它按表单直接写角色/场景文件，还有
+`/api/scenario/save`、`/api/run/execute`、`/api/agent/delete` 等 13 个写端点，且**没有鉴权**。
+所以它默认绑 `127.0.0.1`，**不要**把它放进任何对外可访问的网络位置。
+
+- **角色名守卫**：`_safe_agent_name()` —— 角色名不许含路径分隔符、冒号或 `.`/`..`。
+  此前 `save_agent()` / `upgrade_agent()` 只去掉制表符/换行，名字里带 `..\..` 能在
+  `AGENTS_ROOT` 之外建目录并写 `agent.json`（`delete_agent` 早有守卫，这两处漏了）。
+- 运行方式位置只认显式 `CASE_ENGINE_DIR`（见 `tests/test_engine_bridge.py`），不探测兄弟目录。
+- 测试：`tests/test_config_tool_name_guard.py`（含"拒绝之前不许落盘"的断言）。
+
+## 许可证
+
+Apache License 2.0，见 [LICENSE](LICENSE)。

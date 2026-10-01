@@ -1,4 +1,4 @@
-# mavisframework
+<h1 align="center">mavisframework</h1>
 
 **Every step of every agent — configurable, explainable, visualizable in real time.**
 

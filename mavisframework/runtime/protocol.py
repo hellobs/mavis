@@ -63,7 +63,11 @@ class ErrorMsg(TypedDict):
 # ---------------------------------------------------------------------------
 
 class DecisionEvent(TypedDict, total=False):
-    """一个 Agent 的一条决策事件"""
+    """一个 Agent 的一条决策事件
+
+    注意:**没有 `type` 字段**,这是刻意的 —— 它是决策记录而不是流式消息,
+    `validate_message()` 因此按形状(id/agent/action)识别它(2026-10-03 补)。
+    """
     id: str                       # 全局唯一 "e-0001"
     step: int                     # 第几步
     time: str                     # 模拟时间
@@ -115,13 +119,38 @@ class StoryEventConfig(TypedDict):
     expected: str                 # 期望触发行为(评估/开会/对话...)
 
 
+def _looks_like_decision(msg: Dict[str, Any]) -> bool:
+    """按形状判断一条决策事件(2026-10-03 补)。
+
+    `DecisionEvent` 刻意**没有 `type` 字段** —— 它不是流式消息,是一条
+    决策记录(id/step/agent/action/…),由 `output.decisions` 导出给治理平台。
+    识别它靠三个稳定字段:id、agent、action。
+    """
+    return all(k in msg for k in ("id", "agent", "action"))
+
+
 def validate_message(msg: Dict[str, Any]) -> bool:
-    """校验消息是否合规(框架契约的简易校验)"""
-    if not isinstance(msg, dict) or "type" not in msg:
+    """校验消息是否合规(框架契约的简易校验)
+
+    覆盖两类(2026-10-03 补上第二类):
+    - **流式消息**:带 `type` 判别符的 agent / init / time / chat_line /
+      snapshot / done / error(以及显式写 `type="decision"` 的决策事件);
+    - **决策事件**:`DecisionEvent` 没有 `type`,按形状认。
+
+    此前只认第一类,导致**一条完全合法的 `DecisionEvent` 被判为不合规** ——
+    契约说决策事件是协议六种消息之一,校验器却不认它。接入方拿校验器当
+    契约的守门人时,会把自己框架产出的合法数据挡在门外。
+    """
+    if not isinstance(msg, dict):
         return False
-    t = msg["type"]
+    t = msg.get("type")
+    if t is None:
+        # 没有判别符:只可能是决策事件(流式消息缺失 type 即非法)
+        return _looks_like_decision(msg)
     if t == "agent":
         return "name" in msg and "coord" in msg
     if t in ("init", "time", "chat_line", "snapshot", "done", "error"):
         return True
+    if t == "decision":
+        return _looks_like_decision(msg)
     return False

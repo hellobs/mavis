@@ -10,9 +10,53 @@ import json
 import os
 import re
 import threading
+import time
 import concurrent.futures
 
 import requests
+
+
+# 编程/参数类错误:同样的输入重试必然同样失败,再睡 5 秒重试 10 次纯属空转。
+# 这类错误**立刻抛出**,不允许退化成"静默空转 + 交一个看似正常的 failsafe"
+# (2026-10-03 修:此前传 `max_tokens=` 会 TypeError → 被 except 吞掉 → 睡 5s ×10
+#  → 返回 failsafe,调用方完全看不出自己传错了参数)。
+_BUG_ERRORS = (TypeError, AttributeError, NameError, ImportError,
+               KeyError, AssertionError, IndexError)
+
+
+class UpstreamHTTPError(RuntimeError):
+    """上游返回非 2xx。
+
+    为什么要专门一个类型(2026-10-03 修):此前两个 provider 都是
+    `response.json()` 直接解,**HTTP 500 的事实被整个丢掉** —— 错误页/网关返回的
+    HTML 或纯文本会让 JSON 解析器报"Expecting value",而真正的错误是"上游挂了"。
+    这里带上状态码与响应体片段,日志里第一眼就能看到 500 而不是一条 JSON 报错。
+
+    它是**可重试**的(不属于 `_BUG_ERRORS`):上游临时过载/网关抖动确实该退避重试。
+    """
+
+    def __init__(self, status_code, body=""):
+        self.status_code = status_code
+        self.body = (body or "").strip()[:200]
+        super().__init__("上游返回 HTTP {}: {}".format(status_code, self.body))
+
+
+def _raise_for_status(response):
+    """非 2xx 就带着状态码抛 `UpstreamHTTPError`(2026-10-03 修)。
+
+    不这么做的话,上游 500 的错误页/网关 HTML 会直接进 `response.json()`,
+    报出来的是"Expecting value: line 1 column 1"—— 真正的原因(上游挂了)
+    被彻底掩盖。状态码是排查的第一现场,不能丢。
+    """
+    code = getattr(response, "status_code", 200)
+    if code is not None and code >= 400:
+        body = ""
+        try:
+            body = response.text
+        except Exception:
+            body = ""
+        raise UpstreamHTTPError(code, body)
+
 
 
 class _BaseProvider:
@@ -53,8 +97,19 @@ class _BaseProvider:
     # ---------------- 对外接口 ----------------
     def completion(
         self, prompt, retry=10, callback=None, failsafe=None,
-        return_type=None, caller="llm_normal", **kwargs
+        return_type=None, caller="llm_normal",
+        backoff=5.0, raise_on_error=False, **kwargs
     ):
+        """结构化输出调用(带重试/超时/failsafe)。
+
+        `backoff` / `raise_on_error` 为 2026-10-03 新增,**默认行为与之前一致**:
+        - `backoff=5.0`:每次失败后的退避秒数(写死版是 5s);
+        - `raise_on_error=False`:最后一次仍失败时返回 `failsafe`(原行为);
+          置 True 则把最后一个异常抛出去,让调用方知道"这次是真的没跑成"。
+
+        另有一类**不重试**的异常:参数/编程错误(`_BUG_ERRORS`)。重试对它们
+        没有意义,一律立刻抛出 —— 静默空转是最贵的一种失败。
+        """
         # 缓存命中:仅确定性调用(见 _CACHEABLE_CALLERS)
         cache_key = None
         if self._cache_enabled and caller in self._CACHEABLE_CALLERS:
@@ -65,9 +120,10 @@ class _BaseProvider:
                 return cached
 
         response = None
+        last_err = None
         self._summary.setdefault(caller, [0, 0, 0])
         sem = self._semaphore(self._concurrency)
-        for _ in range(retry):
+        for attempt in range(retry):
             try:
                 # 限流:限制同时进行的 LLM 请求数(Ollama 并发有限)
                 with sem:
@@ -78,13 +134,19 @@ class _BaseProvider:
                     response = callback(output)
                 else:
                     response = output
+            except _BUG_ERRORS as e:
+                # 参数/编程错误:重试只会重复同一个失败,立刻抛(不睡不退不吞)
+                from mavisframework.runtime.logger import get_logger
+                get_logger("llm").error(
+                    "LLM completion 编程错误(不重试): {}: {}".format(type(e).__name__, e))
+                raise
             except Exception as e:
                 from mavisframework.runtime.logger import get_logger
 
-                get_logger("llm").warning(f"LLM completion error: {e}")
-                import time
-
-                time.sleep(5)
+                last_err = e
+                get_logger("llm").warning("LLM completion error: {}".format(e))
+                if attempt < retry - 1:      # 最后一轮不再白睡
+                    time.sleep(backoff)
                 response = None
                 continue
             if response is not None:
@@ -92,6 +154,11 @@ class _BaseProvider:
         pos = 2 if response is None else 1
         self._summary["total"][pos] += 1
         self._summary[caller][pos] += 1
+        if response is None and raise_on_error and last_err is not None:
+            from mavisframework.runtime.logger import get_logger
+            get_logger("llm").error(
+                "LLM completion 重试 {} 次仍失败,按 raise_on_error 抛出".format(retry))
+            raise last_err
         result = response if response is not None else failsafe
 
         if cache_key is not None and result is not None:
@@ -138,7 +205,20 @@ class _BaseProvider:
             future = executor.submit(self._completion, prompt, return_type, **kwargs)
             return future.result(timeout=timeout)
 
-    def _completion(self, prompt, return_type, temperature=0.5):
+    def _completion(self, prompt, return_type, temperature=0.5,
+                    max_tokens=None, **unsupported):
+        """`max_tokens=None` 表示**不下发该参数**,沿用上游自己的默认值 ——
+        这保证默认行为与加这个参数之前逐字节一致(直接写死一个数字会让原本
+        不受限的输出被截断,是比"传不进去"更糟的回归)。
+
+        `**unsupported`:以前 `**kwargs` 会被静默吞掉,现在遇到不认识的参数立刻
+        报错并列出可用项 —— 拼错参数名要在第一次就炸,而不是睡满一轮退避之后
+        交一个 failsafe。
+        """
+        if unsupported:
+            raise TypeError(
+                "LLM provider 不支持这些参数: {};可用参数: temperature / max_tokens"
+                .format(sorted(unsupported)))
         # 生成 JSON schema from Pydantic model(结构化输出)
         response_format = None
         if return_type is not None:
@@ -156,7 +236,7 @@ class _BaseProvider:
                 pass
 
         messages = [{"role": "user", "content": prompt}]
-        ret = self._chat(messages, temperature, response_format)
+        ret = self._chat(messages, temperature, response_format, max_tokens)
 
         # 过滤 <think> 标签
         ret = re.sub(r"<think>.*</think>", "", ret, flags=re.DOTALL)
@@ -252,7 +332,7 @@ class _BaseProvider:
 
 
 class OllamaProvider(_BaseProvider):
-    def _chat(self, messages, temperature, response_format=None):
+    def _chat(self, messages, temperature, response_format=None, max_tokens=None):
         headers = {"Content-Type": "application/json"}
         params = {
             "model": self._model,
@@ -260,6 +340,8 @@ class OllamaProvider(_BaseProvider):
             "temperature": temperature,
             "stream": False,
         }
+        if max_tokens is not None:
+            params["max_tokens"] = max_tokens
         if response_format:
             params["response_format"] = response_format
         response = requests.post(
@@ -269,6 +351,7 @@ class OllamaProvider(_BaseProvider):
             stream=False,
             timeout=300,
         )
+        _raise_for_status(response)
         data = response.json()
         if data and len(data.get("choices", [])) > 0:
             return data["choices"][0]["message"]["content"]
@@ -276,7 +359,7 @@ class OllamaProvider(_BaseProvider):
 
 
 class OpenAIProvider(_BaseProvider):
-    def _chat(self, messages, temperature, response_format=None):
+    def _chat(self, messages, temperature, response_format=None, max_tokens=None):
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self._api_key}",
@@ -287,6 +370,8 @@ class OpenAIProvider(_BaseProvider):
             "temperature": temperature,
             "stream": False,
         }
+        if max_tokens is not None:
+            params["max_tokens"] = max_tokens
         if response_format:
             params["response_format"] = response_format
         response = requests.post(
@@ -296,6 +381,7 @@ class OpenAIProvider(_BaseProvider):
             stream=False,
             timeout=300,
         )
+        _raise_for_status(response)
         data = response.json()
         if data and len(data.get("choices", [])) > 0:
             return data["choices"][0]["message"]["content"]

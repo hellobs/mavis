@@ -42,7 +42,9 @@ class _Probe(_BaseProvider):
     """记录 `_chat` 收到的参数,并可指定抛什么异常。"""
 
     def __init__(self, exc=None, cfg=None):
-        super().__init__(dict(cfg or _CFG))
+        merged = dict(_CFG)          # 合并而非替换,便于只覆盖关心的键
+        merged.update(cfg or {})
+        super().__init__(merged)
         self.calls = []
         self.exc = exc
         self.status = 200
@@ -175,3 +177,140 @@ class TestInterfaceParity:
             params = inspect.signature(cls._chat).parameters
             assert "max_tokens" in params, cls.__name__
             assert params["max_tokens"].default is None, cls.__name__
+
+    def test_timeout_passthrough_documented_and_working(self):
+        """`timeout` 一直是具名参数、能正常传(不是埋在 **kwargs 里),
+        只是抽象签名没写 —— 记在这里防止又被当成"不可配"。"""
+        from mavisframework.runtime.llm import LLMProvider
+        import inspect
+        doc = inspect.getdoc(LLMProvider.completion)
+        assert "timeout" in doc, "timeout 必须在抽象接口的文档里写明"
+        # 实际能生效
+        p = _Probe()
+        assert p.completion("hi", retry=1, failsafe="FB", timeout=200) == "ok"
+
+
+# ------------------------------------------------------------- G2 信号量分桶
+class TestSemaphoreBucketing:
+    """并发闸曾是一个全局对象,size 一变就整体换掉 → 限流形同虚设。"""
+
+    def test_same_size_shares_one_semaphore(self):
+        a = _Probe(cfg={"concurrency": 4})
+        b = _Probe(cfg={"concurrency": 4})
+        assert a._semaphore(4) is b._semaphore(4), "同 size 应共享(保住全局限流原意)"
+
+    def test_different_size_gets_different_semaphore(self):
+        a = _Probe(cfg={"concurrency": 4})
+        b = _Probe(cfg={"concurrency": 2})
+        assert a._semaphore(4) is not b._semaphore(2), \
+            "不同 size 必须是不同闸 —— 此前会被整体替换成同一个"
+
+    def test_repeated_calls_are_stable(self):
+        """反复取同一个 size 必须拿到同一个对象(限流不失效)。"""
+        p = _Probe(cfg={"concurrency": 3})
+        first = p._semaphore(3)
+        for _ in range(5):
+            assert p._semaphore(3) is first
+
+    def test_interleaved_sizes_do_not_clobber(self):
+        """核心回归:交错取不同 size,先取的不能被后来的换掉。"""
+        p4 = _Probe(cfg={"concurrency": 4})
+        p2 = _Probe(cfg={"concurrency": 2})
+        s4 = p4._semaphore(4)
+        s2 = p2._semaphore(2)
+        assert p4._semaphore(4) is s4
+        assert p2._semaphore(2) is s2
+        # 实际上限应各自成立
+        assert s4._value == 4 and s2._value == 2
+
+    def test_invalid_size_is_clamped(self):
+        p = _Probe(cfg={"concurrency": 0})
+        assert p._semaphore(0)._value >= 1
+
+
+# ------------------------------------------------------- .res 契约 fail fast
+class TestResFieldContract:
+    def test_missing_res_raises_before_any_call(self):
+        """顶层没有 res 的模型:发请求**之前**就报,且一次上游都不调。
+
+        这条是最阴的坑 —— 此前是校验通过、取属性抛 AttributeError、
+        落在重试分支里表现成"上游失败",报错方向完全错。
+        """
+        from pydantic import BaseModel
+
+        class NoRes(BaseModel):
+            score: int
+
+        p = _Probe()
+        with pytest.raises(TypeError) as ei:
+            p._completion("hi", NoRes)
+        assert "res" in str(ei.value)
+        assert "score" in str(ei.value), "报错要点名模型实际的顶层字段"
+        assert p.calls == [], "必须在发请求前拦下,不能白花一次上游调用"
+
+    def test_missing_res_via_completion_does_not_retry(self):
+        from pydantic import BaseModel
+
+        class NoRes(BaseModel):
+            score: int
+
+        p = _Probe()
+        with pytest.raises(TypeError):
+            p.completion("hi", retry=5, failsafe="SENTINEL", return_type=NoRes)
+        assert p.calls == []
+
+    def test_model_with_res_passes(self):
+        from pydantic import BaseModel
+
+        class HasRes(BaseModel):
+            res: str
+
+        p = _Probe()
+        assert p._completion("hi", HasRes) == "ok"
+        assert len(p.calls) == 1
+
+    def test_non_pydantic_return_type_not_blocked(self):
+        """不是 Pydantic 模型就没有字段可言,不该被这条规则误伤。"""
+        p = _Probe()
+        assert p._completion("hi", object) == "ok"
+
+
+# ----------------------------------------------------- G1 可缓存 caller 登记
+class TestCacheableRegistration:
+    def test_default_not_cached(self):
+        """未登记的 caller 不走缓存(默认行为与之前一致)。"""
+        p = _Probe()
+        p._cache_enabled = True
+        p.completion("x", retry=1, caller="my_task")
+        p.completion("x", retry=1, caller="my_task")
+        assert len(p.calls) == 2, "没登记就该真的调两次"
+
+    def test_register_cacheable_enables_cache(self):
+        p = _Probe()
+        p._cache_enabled = True
+        p.register_cacheable("my_task")
+        p.completion("x", retry=1, caller="my_task")
+        p.completion("x", retry=1, caller="my_task")
+        assert len(p.calls) == 1, "登记后第二次应命中缓存"
+        assert p.cache_stats()["hits"] == 1
+
+    def test_config_can_register_in_bulk(self):
+        p = _Probe(cfg={"cacheable_callers": ["a", "b"]})
+        assert "a" in p._cacheable_callers and "b" in p._cacheable_callers
+
+    def test_config_accepts_single_string(self):
+        p = _Probe(cfg={"cacheable_callers": "solo"})
+        assert "solo" in p._cacheable_callers
+
+    def test_builtin_callers_still_cached(self):
+        """内置白名单不能因为这次改动而失效。"""
+        p = _Probe()
+        p._cache_enabled = True
+        for c in _BaseProvider._CACHEABLE_CALLERS:
+            assert c in p._cacheable_callers, c
+
+    def test_instances_do_not_share_registrations(self):
+        """登记是实例级的 —— 一个 provider 登记不该污染别的。"""
+        a, b = _Probe(), _Probe()
+        a.register_cacheable("only_a")
+        assert "only_a" not in b._cacheable_callers

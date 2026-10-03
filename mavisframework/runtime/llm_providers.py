@@ -58,6 +58,28 @@ def _raise_for_status(response):
         raise UpstreamHTTPError(code, body)
 
 
+def _assert_res_field(return_type) -> None:
+    """发请求**之前**校验:结构化输出的顶层字段必须叫 `res`。
+
+    为什么要在发请求前拦(2026-10-03):`_parse_output()` 三层都取
+    `model_validate(...).res`。模型顶层不叫 `res` 时,Pydantic 校验通过、
+    取属性却抛 `AttributeError`,而那个异常落在 `completion()` 的重试分支里 ——
+    表现成"退避 5 秒 → 重试 → 交 failsafe",**报错指向错误的方向**:
+    去看上游日志会发现上游好好的,什么都没发生。排查这件事很花时间。
+
+    这里提前用 `TypeError` 挡下(属于 `_BUG_ERRORS`,不重试、不空转),
+    并把模型实际的顶层字段名打出来,一次就对。
+    """
+    fields = getattr(return_type, "model_fields", None)
+    if fields is None or "res" in fields:
+        return
+    raise TypeError(
+        "return_type 顶层必须有 `res` 字段 —— mavis 的结构化输出取的是 "
+        "`model_validate(...).res`(runtime/llm_providers._parse_output)。"
+        "你的模型 {} 顶层字段是 {}。".format(
+            getattr(return_type, "__name__", return_type), sorted(fields)))
+
+
 
 class _BaseProvider:
     """统一入口:带超时、重试、failsafe 的 completion
@@ -66,17 +88,26 @@ class _BaseProvider:
     限制同时进行的 LLM 请求数——Ollama 单实例并发有限,超了只会排队无收益。
     """
 
-    _GLOBAL_SEM = None          # 全局信号量(进程级,按需创建)
+    _GLOBAL_SEM = {}         # {size: Semaphore},进程级共享(2026-10-03 改)
     _GLOBAL_SEM_LOCK = threading.Lock()
 
     @classmethod
     def _semaphore(cls, size: int = 4):
-        """获取全局并发信号量(进程级共享)"""
+        """取进程级并发闸,**按 size 分桶**。
+
+        2026-10-03 修:此前只有一个全局闸,`size` 一变就把整个对象换掉 ——
+        持有旧闸的线程不受新闸约束,两个不同并发配置的 provider 共存时
+        实际在飞的请求数会超过任何一个的设定值(限流形同虚设)。分桶后
+        同 size 的 provider 共享一个闸(保住"全局限流"的原意),不同 size
+        各限各的,互不干扰。
+        """
+        size = max(1, int(size))
         with cls._GLOBAL_SEM_LOCK:
-            if cls._GLOBAL_SEM is None or cls._GLOBAL_SEM_SIZE != size:
-                cls._GLOBAL_SEM = threading.Semaphore(size)
-                cls._GLOBAL_SEM_SIZE = size
-        return cls._GLOBAL_SEM
+            sem = cls._GLOBAL_SEM.get(size)
+            if sem is None:
+                sem = threading.Semaphore(size)
+                cls._GLOBAL_SEM[size] = sem
+        return sem
 
     def __init__(self, config: dict):
         self._config = config
@@ -93,6 +124,13 @@ class _BaseProvider:
         self._cache_order = []
         self._cache_max = int(config.get("cache_max", 2000))
         self._cache_hits = 0
+        # 可缓存的 caller 白名单:内置三项 + config 批量 + register_cacheable 逐个登记。
+        # 不登记 = 不缓存(默认行为与之前一致)。
+        self._cacheable_callers = set(self._CACHEABLE_CALLERS)
+        extra = config.get("cacheable_callers") or ()
+        if isinstance(extra, str):
+            extra = [extra]
+        self._cacheable_callers.update(str(x) for x in extra)
 
     # ---------------- 对外接口 ----------------
     def completion(
@@ -110,9 +148,9 @@ class _BaseProvider:
         另有一类**不重试**的异常:参数/编程错误(`_BUG_ERRORS`)。重试对它们
         没有意义,一律立刻抛出 —— 静默空转是最贵的一种失败。
         """
-        # 缓存命中:仅确定性调用(见 _CACHEABLE_CALLERS)
+        # 缓存命中:仅确定性调用(见 _CACHEABLE_CALLERS / register_cacheable)
         cache_key = None
-        if self._cache_enabled and caller in self._CACHEABLE_CALLERS:
+        if self._cache_enabled and caller in self._cacheable_callers:
             cache_key = (caller, prompt, return_type.__name__ if return_type else "")
             cached = self._cache.get(cache_key)
             if cached is not None:
@@ -177,6 +215,20 @@ class _BaseProvider:
         "generate_chat_check_repeat",
     }
 
+    def register_cacheable(self, caller: str) -> None:
+        """把一个 `caller` 登记为"确定性调用",从而参与结果缓存(2026-10-03 新增)。
+
+        为什么要有这个口子:白名单原先是类属性硬编码,接入方想给自己的确定性
+        调用开缓存,只能**改框架源码** —— 违反"框架只做加法、默认关闭"的约定。
+
+        **只在该调用对同一 prompt 结果稳定时才登记**(如打分、分类、格式化);
+        有随机性或依赖外部状态的调用登记进去会拿到过期结果。
+        不调用这个方法 = 行为与之前完全一致(默认不缓存)。
+
+        也可在构造 config 时用 `cacheable_callers: [...]` 批量登记。
+        """
+        self._cacheable_callers.add(caller)
+
     def cache_stats(self) -> dict:
         total_calls = self._summary["total"][0] + self._cache_hits
         return {
@@ -219,6 +271,7 @@ class _BaseProvider:
             raise TypeError(
                 "LLM provider 不支持这些参数: {};可用参数: temperature / max_tokens"
                 .format(sorted(unsupported)))
+        _assert_res_field(return_type)
         # 生成 JSON schema from Pydantic model(结构化输出)
         response_format = None
         if return_type is not None:
@@ -255,6 +308,13 @@ class _BaseProvider:
         第 2 层:文本中扫描所有合法 JSON 对象 → 取第一个能通过校验的 res
                 (覆盖:分析+最终输出、markdown 代码块、拼接对象、前置废话)
         第 3 层:文本中无合法 JSON(LLM 直接输出了裸文本) → 统一截断清理
+
+        **`return_type` 的顶层字段必须叫 `res`**(2026-10-03 写进契约):
+        下面三处取的都是 `model_validate(...).res`。模型顶层不叫 res 时,
+        Pydantic 校验通过但取属性抛 `AttributeError` —— 那个异常会被
+        `completion()` 当成"调用失败"吞掉,于是**报错指向错误的方向**
+        (看起来像上游挂了,其实是你模型少个字段)。`_assert_res_field()`
+        在发请求之前就把它挡下来,不再浪费一次上游调用。
         """
         # 第 1 层:整体解析
         try:

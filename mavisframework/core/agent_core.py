@@ -184,8 +184,11 @@ class Agent:
         # IVD 重构:goals 不再是 AI 属性(约束外部化到 governance.json)
         # scratch 配置不含 goals;价值倾向(value_tendency)由体验累积
         _scratch_cfg = dict(config.get("scratch", {}))
+        # template_dir 可从 agent 配置透传(2026-10-03 新增):环境变量进程级唯一,
+        # 同进程挂多场景时无法各用各的模板目录;不配 = 原行为(读 MAVIS_PROMPT_DIR)。
         self.scratch = Scratch(
-            self.name, config["currently"], _scratch_cfg, timer=self._timer
+            self.name, config["currently"], _scratch_cfg, timer=self._timer,
+            template_dir=config.get("template_dir"),
         )
         self.scratch.agent = self  # 供 _tendency_desc 读取 value_tendency
         # 价值倾向初始化:

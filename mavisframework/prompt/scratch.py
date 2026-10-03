@@ -18,11 +18,22 @@ _DEFAULT_TEMPLATE_DIR = os.path.join(
 )
 
 class Scratch:
-    def __init__(self, name, currently, config, timer=None):
+    def __init__(self, name, currently, config, timer=None, template_dir=None):
+        """`template_dir`(2026-10-03 新增,纯新增、默认行为不变):
+
+        为 None 时按原样读环境变量 `MAVIS_PROMPT_DIR` 再退回包内 `prompts/`。
+
+        为什么要这个参数:环境变量是**进程级唯一**的,同一进程里两个不同场景
+        无法各用各的模板目录 —— 这在"一个进程挂多个场景"时是硬墙(此前只能靠
+        进程隔离绕开)。显式参数让多场景同进程成为可能,且不改默认行为。
+        """
         self.name = name
         self.currently = currently
         self.config = config
-        self.template_path = os.environ.get("MAVIS_PROMPT_DIR", _DEFAULT_TEMPLATE_DIR)
+        if template_dir:
+            self.template_path = template_dir
+        else:
+            self.template_path = os.environ.get("MAVIS_PROMPT_DIR", _DEFAULT_TEMPLATE_DIR)
         self._timer = timer or Timer()
         self._timer_injected = timer is not None
 

@@ -814,6 +814,9 @@ async def scenario_save(request: Request):
             "场景无处落盘:平台目录未声明({} 或 MAVIS_PLATFORM_DIR),"
             "或用 CASE_ENGINE_CASES_ROOT 直接指定场景根".format(engine_bridge.ENV_DIR)]})
     case_id = (cfg.get("meta") or {}).get("case_id")
+    wipe = _wordlist_wipe_errors(case_id, cfg, form)
+    if wipe:
+        return JSONResponse({"ok": False, "errors": wipe})
     try:
         # sandbox-value:先写完整内容资产,再把 world.assets 指向自包含目录
         if (form.get("engine") or "") == "sandbox-value":
@@ -917,6 +920,54 @@ def _load_scenario_dict(case_id: str) -> dict | None:
         return None
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+# 词表两组:表单里留空 ≠ "要清空原文件"。保存走的是**整份重写** scenario.yaml
+# (build_scenario → save_scenario),收起的面板一旦没把值带回来,一次保存就会抹掉
+# 实验设定,并连带改变 scenario_sha256。所以原文件有词、这次提交为空、且没勾
+# 「确认清空」时拦下来报可读原因,不静默落盘。
+_WORDLIST_GROUPS = (
+    ("branch", ("no_buy", "refuse", "conditional", "anti_allin", "fallback_map"),
+     "分支词表(no_buy/refuse/conditional/anti_allin + fallback_map)",
+     "confirm_clear_branch_words"),
+    ("consistency", ("buy_words", "cond_words", "negators", "neg_phrases"),
+     "一致性信号词(buy_words/cond_words/negators/neg_phrases)",
+     "confirm_clear_consistency"),
+)
+
+
+def _wordlist_count(section: dict, key: str) -> int:
+    """数一个键里到底有多少条(fallback_map 是 dict,按分支个数计)。"""
+    value = (section or {}).get(key)
+    if isinstance(value, dict):
+        return len(value)
+    if isinstance(value, (list, tuple)):
+        return len(value)
+    return 0
+
+
+def _wordlist_wipe_errors(case_id: str, cfg: dict, form: dict) -> list:
+    """本次保存会把原有的某个词表键抹成空 → 返回可读错误;无此风险返回空列表。
+
+    只在**编辑已有场景**时生效(新建场景读不到旧文件,自然不拦)。
+    按**键**比而不是按组:只抹掉两类词同样是静默改设定。
+    """
+    old = _load_scenario_dict(case_id or "")
+    if not old:
+        return []
+    errors = []
+    for section, keys, label, confirm_key in _WORDLIST_GROUPS:
+        lost = [k for k in keys
+                if _wordlist_count(old.get(section), k)
+                and not _wordlist_count(cfg.get(section), k)]
+        if lost and not form.get(confirm_key):
+            errors.append(
+                "{}:原场景文件在 {} 里有词,本次提交这几项全为空。保存会整份重写 "
+                "scenario.yaml,把它们抹掉(并改变 scenario_sha256)。"
+                "确实要清空请展开对应面板勾选「确认清空」再存;想沿用原值就别动那个面板"
+                "(编辑已有场景时词表会自动回填)。涉及键:{}".format(
+                    label, section, "、".join(lost)))
+    return errors
 
 
 def _form_from_scenario(case_id: str, data: dict) -> dict:

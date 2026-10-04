@@ -103,6 +103,13 @@
 <div class="section">
     <label>默认分支 <span class="opt">未命中任何词表时返回的分支 id,如 A/B/C</span></label>
     <input type="text" id="branch_default" placeholder="如 C">
+    <details class="adv" id="branch-wordlists">
+      <summary id="branch-wordlists-sum">分支词表(选填)</summary>
+      <p class="hint" style="margin:10px 0 4px;">
+        这四类词<strong>只有规则判定后端消费</strong>:LLM 判定下分支由回答本身判出,这里留空不影响。
+        留空且判定后端为 <code>rules</code> 时,任何回答都会落到上面的默认分支;不硬判。
+        改动会写进 <code>scenario.yaml</code> 并让 <code>scenario_sha256</code> 变化 —— 这是实验设定,不是界面文案。
+      </p>
     <div class="row">
         <div>
             <label>否决不参与(no_buy)</label>
@@ -125,10 +132,24 @@
     </div>
     <label>fallback_map <span class="opt">JSON:每分支对状态字段的改变,如 {"A": {"approved": true}}</span></label>
     <textarea id="branch_fallback_map" placeholder='{"A": {"approved": true}, "B": {"approved": false}}'></textarea>
+    <p class="hint" style="margin:8px 0 0;">
+        <label style="font-weight:normal;">
+            <input type="checkbox" id="confirm_clear_branch_words" style="width:auto;display:inline;">
+            确认清空这四类分支词(原场景文件里有词表而这里全留空时,保存默认会被拦下)
+        </label>
+    </p>
+    </details>
 </div>
 
 <h2 data-engines="experiment-eval">一致性信号词</h2>
 <div class="section">
+    <details class="adv" id="cons-wordlists">
+      <summary id="cons-wordlists-sum">信号词四张表(选填)</summary>
+      <p class="hint" style="margin:10px 0 4px;">
+        这四张表只喂<strong>关键词快筛(quick_scan)</strong>那句"正面/谨慎/条件化各几句"的兜底统计;
+        首要口径是 LLM 立场判定(<code>llm_stance</code>),它不消费词表。留空则快筛判 <code>unknown</code>,不硬判。
+        同样地,改动会让 <code>scenario_sha256</code> 变化。
+      </p>
     <div class="row">
         <div>
             <label>一致(buy_words)</label>
@@ -149,6 +170,13 @@
             <textarea id="cons_neg_phrases" placeholder="每行一个关键词"></textarea>
         </div>
     </div>
+    <p class="hint" style="margin:8px 0 0;">
+        <label style="font-weight:normal;">
+            <input type="checkbox" id="confirm_clear_consistency" style="width:auto;display:inline;">
+            确认清空这四张信号词表(同上,默认拦下)
+        </label>
+    </p>
+    </details>
 </div>
 </div>
 {# /#eval-only-section #}
@@ -427,6 +455,8 @@ function fillJsonExample(sel, text){
 }
 function collectForm(){
     var fm=parseJson("branch_fallback_map", {});
+    // 复选框不在草稿快照字段里:每次都以"未确认清空"起,宁可多拦一次
+    var cb=function(id){ var el=document.getElementById(id); return !!(el && el.checked); };
     return {
         engine: document.getElementById("engine").value,
         case_id: document.getElementById("case_id").value,
@@ -445,6 +475,8 @@ function collectForm(){
         cons_cond_words: document.getElementById("cons_cond_words").value,
         cons_negators: document.getElementById("cons_negators").value,
         cons_neg_phrases: document.getElementById("cons_neg_phrases").value,
+        confirm_clear_branch_words: cb("confirm_clear_branch_words"),
+        confirm_clear_consistency: cb("confirm_clear_consistency"),
         asset_maze: document.getElementById("asset_maze").value,
         agents: readSbxRoles(),
         relationships: readSbxRels(),
@@ -594,6 +626,7 @@ function fillForm(f){
     });
     // 运行方式差异动态显隐
     toggleSandboxWorld();
+    refreshWordSummary();
     // 地址树按该场景实际地图就绪后,再回填各角色居住区,保证非默认地图也能命中正确选项
     reloadAddresses().then(function(){
         agents.forEach(function(a,i){
@@ -705,6 +738,41 @@ var _engSel=document.getElementById("engine");
 if(_engSel) _engSel.addEventListener("change", toggleSandboxWorld);
 toggleSandboxWorld();
 
+// ===== 折叠的"词表面板":收起态也要报出继承了多少条 =====
+// 程序化赋值(fillForm/草稿恢复)不触发 input,所以这两处要显式刷一次。
+var _BRANCH_WL = ["branch_no_buy","branch_refuse","branch_conditional","branch_anti_allin"];
+var _CONS_WL = ["cons_buy_words","cons_cond_words","cons_negators","cons_neg_phrases"];
+function _wordCount(text){
+    // 与服务端 scenario_builder.parse_words 同口径:换行/半全角逗号/分号/顿号分隔 + 去重
+    var seen = {}, n = 0;
+    String(text == null ? "" : text).replace(/[\n,，;；、]/g, "\n").split("\n").forEach(function(w){
+        w = (w || "").trim();
+        if (w && !seen[w]) { seen[w] = 1; n++; }
+    });
+    return n;
+}
+function refreshWordSummary(){
+    function one(ids, sumId, label){
+        var el = document.getElementById(sumId);
+        if (!el) return;
+        var total = 0, hit = 0;
+        ids.forEach(function(id){
+            var src = document.getElementById(id);
+            var c = src ? _wordCount(src.value) : 0;
+            total += c;
+            if (c) hit++;
+        });
+        el.textContent = total
+            ? (label + " · 已有 " + total + " 条(" + hit + "/" + ids.length + " 类非空)")
+            : (label + " · 全空(留空则不写进 scenario.yaml)");
+    }
+    one(_BRANCH_WL, "branch-wordlists-sum", "分支词表(选填)");
+    one(_CONS_WL, "cons-wordlists-sum", "信号词四张表(选填)");
+}
+document.addEventListener("input", refreshWordSummary);
+document.addEventListener("change", refreshWordSummary);
+refreshWordSummary();
+
 // ===== 草稿自动保存:防网络波动/误刷新丢失输入 =====
 // 存"表单原生快照":各输入字段取原始字符串值 + 动态行结构,恢复时直接回填,
 // 规避 collectForm 对 branch_fallback_map 等的对象化转换导致回填失真。
@@ -815,6 +883,7 @@ function draftRestore(){
     if(!d) return;
     // 基础字段按原始字符串回填
     _TEXT_FIELDS.forEach(function(id){ var el=document.getElementById(id); if(el) el.value = (d[id]==null?"":d[id]); });
+    refreshWordSummary();
     // 动态行:先清空再按草稿行结构逐行重建
     var tb=document.getElementById("roles-body"); tb.innerHTML="";
     (d.roles||[]).forEach(function(r){

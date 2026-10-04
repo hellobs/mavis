@@ -159,6 +159,10 @@ def build_scenario(form: dict) -> dict:
         if words:
             branch[k] = words
     fm = form.get("branch_fallback_map")
+    if isinstance(fm, str):
+        # 与 value_tendency / sandbox_params 同口径:`_form_from_scenario` 回读给 textarea
+        # 的是 JSON **文本**,原实现只认 dict,导致"load → save"一次就把 fallback_map 丢掉。
+        fm = _parse_value_json(fm)
     if isinstance(fm, dict) and fm:
         branch["fallback_map"] = fm
     judge_prompt = _strip(form.get("branch_judge_prompt"))

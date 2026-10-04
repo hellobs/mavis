@@ -927,8 +927,9 @@ def _load_scenario_dict(case_id: str) -> dict | None:
 # 实验设定,并连带改变 scenario_sha256。所以原文件有词、这次提交为空、且没勾
 # 「确认清空」时拦下来报可读原因,不静默落盘。
 _WORDLIST_GROUPS = (
-    ("branch", ("no_buy", "refuse", "conditional", "anti_allin", "fallback_map"),
-     "分支词表(no_buy/refuse/conditional/anti_allin + fallback_map)",
+    ("branch", ("no_buy", "refuse", "conditional", "anti_allin", "fallback_map",
+                "judge_prompt"),
+     "分支判定配置(no_buy/refuse/conditional/anti_allin + fallback_map + judge_prompt)",
      "confirm_clear_branch_words"),
     ("consistency", ("buy_words", "cond_words", "negators", "neg_phrases"),
      "一致性信号词(buy_words/cond_words/negators/neg_phrases)",
@@ -937,12 +938,14 @@ _WORDLIST_GROUPS = (
 
 
 def _wordlist_count(section: dict, key: str) -> int:
-    """数一个键里到底有多少条(fallback_map 是 dict,按分支个数计)。"""
+    """数一个键里到底有多少条(dict 按分支个数、list 按条数、str 非空算一条)。"""
     value = (section or {}).get(key)
     if isinstance(value, dict):
         return len(value)
     if isinstance(value, (list, tuple)):
         return len(value)
+    if isinstance(value, str):
+        return 1 if value.strip() else 0
     return 0
 
 
@@ -1013,6 +1016,9 @@ def _form_from_scenario(case_id: str, data: dict) -> dict:
     form["branch_anti_allin"] = _join_words(branch.get("anti_allin"))
     form["branch_fallback_map"] = json.dumps(
         branch.get("fallback_map") or {}, ensure_ascii=False, indent=4)
+    # judge_prompt 早先**只在 YAML 里**,表单既不回读也不回写 —— 经本工具存一次
+    # 就会把它整段抹掉(保存是整份重写)。现在按 textarea 往返。
+    form["branch_judge_prompt"] = branch.get("judge_prompt") or ""
     # 一致性信号
     cons = data.get("consistency") or {}
     form["cons_buy_words"] = _join_words(cons.get("buy_words"))

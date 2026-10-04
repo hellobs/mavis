@@ -133,7 +133,7 @@ D:\zzr\provenance\provenance\scenarios\investment\story.json
 | `POST /api/story/delete` | 按 id 删除剧情 |
 | `POST /api/agent/delete` | 按角色名删除角色目录(agent.json + 贴图),防路径穿越 |
 | `POST /api/scenario/preview` | 场景表单 → `scenario.yaml` 文本 + 校验结果(不落盘);返回 `engine_available` / `engine_reason` |
-| `POST /api/scenario/save` | 校验通过后写入 `cases/<case_id>/`;平台目录未声明时返回可读错误。编辑已有场景时,词表被清空会**先拦后写**(整份重写会抹掉设定),除非表单带 `confirm_clear_branch_words` / `confirm_clear_consistency` |
+| `POST /api/scenario/save` | 校验通过后写入 `cases/<case_id>/`;平台目录未声明时返回可读错误。编辑已有场景时,原有的分支设定(四类分支词 / `fallback_map` / `judge_prompt`)或一致性信号词被清空会**先拦后写**——保存是整份重写,抹掉即换 `scenario_sha256`;除非表单带 `confirm_clear_branch_words` / `confirm_clear_consistency` |
 | `GET /api/scenario/load` | 按 case_id 反解析回表单 |
 | `GET\|POST\|PATCH\|DELETE /api/compositions` | 组合(场景 × 运行方式)记录的增删改查 |
 | `POST /api/run/execute` | 跑一次组合(运行方式不可用时返回 `运行方式不可用: <原因>`) |

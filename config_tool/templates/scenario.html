@@ -132,10 +132,13 @@
     </div>
     <label>fallback_map <span class="opt">JSON:每分支对状态字段的改变,如 {"A": {"approved": true}}</span></label>
     <textarea id="branch_fallback_map" placeholder='{"A": {"approved": true}, "B": {"approved": false}}'></textarea>
+    <label>判定稿 <code>branch.judge_prompt</code> <span class="opt">仅 LLM 分支判官的兜底稿;规则路径(RuleBranchRouter)不消费它</span></label>
+    <textarea id="branch_judge_prompt" style="height:90px;" placeholder="留空则不写这个键"></textarea>
+    <p class="hint" style="margin:4px 0 0;">说明:原场景文件里有这段时会被回填到这里,别在编辑其它项时把它清空 —— 它同样进 <code>scenario_sha256</code>。</p>
     <p class="hint" style="margin:8px 0 0;">
         <label style="font-weight:normal;">
             <input type="checkbox" id="confirm_clear_branch_words" style="width:auto;display:inline;">
-            确认清空这四类分支词(原场景文件里有词表而这里全留空时,保存默认会被拦下)
+            确认清空这一组(四类分支词 + fallback_map + 判定稿;原场景文件里有值而这里全留空时,保存默认会被拦下)
         </label>
     </p>
     </details>
@@ -471,6 +474,7 @@ function collectForm(){
         branch_conditional: document.getElementById("branch_conditional").value,
         branch_anti_allin: document.getElementById("branch_anti_allin").value,
         branch_fallback_map: fm,
+        branch_judge_prompt: document.getElementById("branch_judge_prompt").value,
         cons_buy_words: document.getElementById("cons_buy_words").value,
         cons_cond_words: document.getElementById("cons_cond_words").value,
         cons_negators: document.getElementById("cons_negators").value,
@@ -570,6 +574,7 @@ function fillForm(f){
     vb("branch_conditional", f.branch_conditional);
     vb("branch_anti_allin", f.branch_anti_allin);
     vb("branch_fallback_map", f.branch_fallback_map);
+    vb("branch_judge_prompt", f.branch_judge_prompt);
     vb("cons_buy_words", f.cons_buy_words);
     vb("cons_cond_words", f.cons_cond_words);
     vb("cons_negators", f.cons_negators);
@@ -781,7 +786,8 @@ var _draftTimer = null;
 var _draftActive = false;
 var _TEXT_FIELDS = ["engine","case_id","name","description","start_date","end_date",
     "branch_default","branch_no_buy","branch_refuse","branch_conditional",
-    "branch_anti_allin","branch_fallback_map","cons_buy_words","cons_cond_words",
+    "branch_anti_allin","branch_fallback_map","branch_judge_prompt",
+    "cons_buy_words","cons_cond_words",
     "cons_negators","cons_neg_phrases","asset_maze","value_tendency","sandbox_params"];
 function _snapField(id){ var el=document.getElementById(id); return el ? el.value : ""; }
 function collectDraft(){

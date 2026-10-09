@@ -47,6 +47,7 @@ class _Stub:
         self.coord = tuple(coord)
         self.path = []
         self.maze = maze
+        self.name = "A"
         self._target_name = target_name
 
     def get_event(self):
@@ -60,7 +61,8 @@ class _Stub:
         return self.maze.tile_at(self.coord)
 
 
-for _m in ("find_path", "_target_center", "_outward_walkable"):
+for _m in ("find_path", "_target_center", "_outward_walkable",
+           "_next_step_blocked", "_blocked_by_agents"):
     setattr(_Stub, _m, getattr(Agent, _m))
 
 
@@ -158,3 +160,31 @@ def test_no_agents_still_goes_to_adjacent_cell(maze):
     end = path[-1]
     assert max(abs(end[0] - target[0]), abs(end[1] - target[1])) == 1, \
         "无人占位时落点应紧邻目标,实得 %s" % (end,)
+
+
+def test_cached_path_replans_when_next_step_occupied(maze):
+    """路径的**下一格**被别人占住时,应重算绕行,而不是闷头沿旧路撞上去。
+
+    这是 2026-10-09 用户第二次反馈的场景("一个人一直在走、被另外一个人挡住"):
+    第一条修的是"目标格被占",这一条修的是"路**中途**被挡"。原因是 find_path
+    开头 `if self.path: return self.path` 会让算好的路一直被复用 —— 别人站到路上
+    后它照样沿旧路走,表现为原地卡住。
+    """
+    target = _open_area(maze, need=2)
+    s = _Stub(maze, (target[0] - 4, target[1]))
+
+    agents = {"B": _Other(target)}
+    path1 = s.find_path(agents)
+    assert path1, "先要有一条正常路径"
+    # 模拟"正在沿这条路径走":把它设成缓存路径
+    s.path = path1
+
+    # 有人站到"原路径的下一格"上
+    blocked = tuple(path1[0])
+    agents["C"] = _Other(blocked)
+    maze.tile_at(blocked).add_event(Event("C", address=["the Ville"]))
+
+    path2 = s.find_path(agents)
+    assert path2, "下一格被占时应重算出绕行路径(修复前会照样返回旧 path)"
+    assert tuple(path2[0]) != blocked, \
+        "重算后的下一格仍是被人占住的 %s —— 等于没绕" % (blocked,)

@@ -129,8 +129,18 @@ class Maze:
 
         self.logger = logger
 
-    def find_path(self, src_coord, dst_coord):
-        """BFS 寻路,返回从 src 到 dst 的格子路径(绕开碰撞)"""
+    def find_path(self, src_coord, dst_coord, blocked=None):
+        """BFS 寻路,返回从 src 到 dst 的格子路径(绕开碰撞)。
+
+        blocked: 额外要绕开的格子集合(如"当前站着人的格子")。默认 None = 只绕墙,
+                 与旧行为完全一致。传了它就顺带绕开这些临时障碍 —— 这是"别人站在
+                 路上时重新规划、而不是一头撞上去"的基础(2026-10-09 用户反馈
+                 "一个人一直在走、被另外一个人挡住")。
+                 注意:src 与 dst 自身即便在 blocked 里也照走(否则会被自己/目标卡死)。
+        """
+        blocked = set(blocked or ())
+        blocked.discard(src_coord)
+        blocked.discard(dst_coord)
         map = [[0 for _ in range(self.maze_width)] for _ in range(self.maze_height)]
         frontier, visited = [src_coord], set()
         map[src_coord[1]][src_coord[0]] = 1
@@ -143,6 +153,7 @@ class Maze:
                         and 0 < c[1] < self.maze_height - 1
                         and map[c[1]][c[0]] == 0
                         and c not in visited
+                        and c not in blocked
                     ):
                         map[c[1]][c[0]] = map[f[1]][f[0]] + 1
                         new_frontier.append(c)

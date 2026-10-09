@@ -931,7 +931,10 @@ class Agent:
 
     def find_path(self, agents):
         address = self.get_event().address
-        if self.path:
+        # 缓存路径的"下一格"被别人占住时,不能闷头沿旧路走 —— 那会一头撞上去、
+        # 表现为"一直在走却被挡住、不会绕"(2026-10-09 用户反馈)。此时丢弃缓存、
+        # 就地重算一条绕开这个人的新路。
+        if self.path and not self._next_step_blocked(self.path, agents):
             return self.path
         if address == self.get_tile().get_address():
             return []
@@ -969,9 +972,34 @@ class Agent:
             return []
         if len(target_tiles) >= 4:
             target_tiles = random.sample(target_tiles, 4)
-        pathes = {t: self.maze.find_path(self.coord, t) for t in target_tiles}
+        # BFS 时把"别人站的格子"当临时障碍 → 宁可绕远也不撞人(2026-10-09)。
+        blocked = self._blocked_by_agents(agents)
+        pathes = {t: self.maze.find_path(self.coord, t, blocked=blocked)
+                  for t in target_tiles}
+        # 全被挡到算不出路:退回不带 blocked 的 BFS,免得一动不动(宁可挤过去也别僵住)。
+        if all(len(p) == 0 for p in pathes.values()):
+            pathes = {t: self.maze.find_path(self.coord, t) for t in target_tiles}
         target = min(pathes, key=lambda p: len(pathes[p]))
         return pathes[target][1:]
+
+    def _next_step_blocked(self, path, agents):
+        """路径的下一步(即马上要踏上的那格)是否被别的角色占着。"""
+        if not path:
+            return False
+        nxt = tuple(path[0])
+        events = self.maze.tile_at(nxt).get_events()
+        return any(e.subject in agents and e.subject != self.name for e in events)
+
+    def _blocked_by_agents(self, agents):
+        """当前所有**别的**角色所占的格子(供 BFS 绕行)。"""
+        blocked = set()
+        for name, ag in (agents or {}).items():
+            if name == self.name:
+                continue
+            coord = getattr(ag, "coord", None)
+            if coord is not None:
+                blocked.add(tuple(coord))
+        return blocked
 
     def _target_center(self, address, agents):
         """目标点坐标:去某 agent 身边 → 那个 agent 的格;去某地址 → 该地址任取一格。"""

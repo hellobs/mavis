@@ -62,7 +62,7 @@ class _Stub:
 
 
 for _m in ("find_path", "_target_center", "_outward_walkable",
-           "_next_step_blocked", "_blocked_by_agents"):
+           "_next_step_blocked", "_blocked_by_agents", "_mutual_approach"):
     setattr(_Stub, _m, getattr(Agent, _m))
 
 
@@ -188,3 +188,68 @@ def test_cached_path_replans_when_next_step_occupied(maze):
     assert path2, "下一格被占时应重算出绕行路径(修复前会照样返回旧 path)"
     assert tuple(path2[0]) != blocked, \
         "重算后的下一格仍是被人占住的 %s —— 等于没绕" % (blocked,)
+
+
+def test_mutual_approach_does_not_deadlock(maze):
+    """两人互为对方目标、同步迈步时,不能对穿后僵死。
+
+    2026-10-09 用户反馈"一个人一直在走、被另外一个人挡住"的可复现版:
+    A 去 B 身边、B 去 A 身边,两人各自并行选"离自己最近的对方邻格",
+    恰好互换位置(对穿) → 走完后两人相邻且互在对方身边 →
+    `if tuple(self.coord) in target_tiles: return []` 直接返回空,
+    **此后每一步都返回空** ⇒ 永久僵住,连交互也起不来。
+
+    正确行为:即便贴住,也不能两人同时"永久原地"——至少要有通路让它们不再对穿
+    (让一方先停/让路,另一方走到其身边的非重叠落点)。
+    """
+    # 找一条 4 格以上的竖直通道(两人分居两端,互为目标)；
+    # 本仓 maze 最大开阔区只有 5×5,所以只能挑现成的直通道。
+    corridor = _find_corridor(maze, length=5)
+    (x, y0), y1 = corridor
+    A = _Stub(maze, (x, y1), target_name="B")
+    A.name = "A"
+    B = _Stub(maze, (x, y0), target_name="A")
+    B.name = "B"
+    agents = {"A": A, "B": B}
+
+    def _refresh():
+        for c in [A.coord, B.coord]:
+            t = maze.tile_at(c)
+            t._events = {k: v for k, v in t._events.items()
+                         if v.subject not in ("A", "B")}
+        for nm, ag in agents.items():
+            maze.tile_at(ag.coord).add_event(Event(nm, address=["the Ville"]))
+
+    coords = []
+    for _ in range(4):
+        _refresh()
+        pa, pb = A.find_path(agents), B.find_path(agents)
+        coords.append((tuple(A.coord), tuple(B.coord)))
+        if pa:
+            A.coord = tuple(pa[-1])
+        if pb:
+            B.coord = tuple(pb[-1])
+
+    # 判据:**两人任何一步都不能并到同一格**(修复前会并格、像连体一样一起走)。
+    merged = [c for c in coords if c[0] == c[1]]
+    assert not merged, "两人并到同一格(像连体一起走):%s" % (merged,)
+    # 且至少要有一方动过(否则等于谁都不去)
+    assert len({c for c in coords}) > 1, "两人都没有朝对方移动过:%s" % (coords,)
+
+
+def _find_corridor(maze, length=5):
+    """找一条**竖直连续可站**的通道,返回 ((x, y_top), y_bottom)。
+
+    要求 length 格连续无碰撞,供"两人分居两端"用(本仓最大开阔区仅 5×5)。
+    """
+    for x in range(1, maze.maze_width - 1):
+        run = 0
+        for y in range(1, maze.maze_height - 1):
+            if not maze.tile_at((x, y)).collision:
+                run += 1
+                if run >= length:
+                    return (x, y - length + 1), y
+            else:
+                run = 0
+    pytest.skip("maze 里找不到长度 %d 的连续通道" % length)
+

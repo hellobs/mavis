@@ -941,6 +941,14 @@ class Agent:
         if address[0] == "<waiting>":
             return []
         if address[0] == "<persona>":
+            # 互为对方目标时**必须破对称**:两人并行各自选"离自己最近的对方邻格",
+            # 在直通道上会选到**同一格**(两人中间那格),于是并成一格、像连体一样
+            # 一起走 —— 画面就是"一个人一直在走,被另一个人带着/挡住"
+            # (2026-10-09 用户反馈,已用双 agent 两步复现)。
+            # 破法:只让名字字典序小的一方朝对方走,另一方本步让路(返回空、原地等),
+            # 等对方贴到自己身边后,交互自然由 _reaction 接管。
+            if self.name > address[1] and self._mutual_approach(agents, address[1]):
+                return []
             target_tiles = self.maze.get_around(agents[address[1]].coord)
         else:
             target_tiles = self.maze.get_address_tiles(address)
@@ -989,6 +997,21 @@ class Agent:
         nxt = tuple(path[0])
         events = self.maze.tile_at(nxt).get_events()
         return any(e.subject in agents and e.subject != self.name for e in events)
+
+    def _mutual_approach(self, agents, other_name):
+        """对方是否也把"我"当成它这一步的目标(即两人在互相走近)。
+
+        用于破对称:互为目标时只让一方动,另一方让路,避免两人选到同一格并成一团。
+        读对方当前事件的 address 判断;取不到就当作"不是"(宁可照旧动,不要误停)。
+        """
+        other = agents.get(other_name)
+        if other is None:
+            return False
+        try:
+            addr = other.get_event().address
+        except Exception:  # noqa: BLE001 - 取不到就当不是互访,退回旧行为
+            return False
+        return bool(addr) and addr[0] == "<persona>" and addr[1] == self.name
 
     def _blocked_by_agents(self, agents):
         """当前所有**别的**角色所占的格子(供 BFS 绕行)。"""

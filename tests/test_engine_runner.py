@@ -47,16 +47,21 @@ def test_list_cases_finds_case00_and_case01(monkeypatch):
 
 
 def test_run_case01_experiment_eval(monkeypatch):
-    """case01 默认引擎 experiment-eval:真跑返回分支/一致性/时间线。"""
+    """case01 默认引擎 experiment-eval:真跑返回时间线(2026-10-09 后不再有分支/一致性)。
+
+    2026-10-09 会议:case01_stock 的 scenario 删掉 branch/consistency 两段
+    (「分支判定」功能删除、「一致性信号词」不显示)⇒ 规则路由无词表可依,
+    branch 落空为 ""、consistency 为 unknown;时间线改由默认单线决定。
+    """
     _cases_env(None, monkeypatch)
     ok, summary, errors = engine_runner.run_case(
         PLATFORM_DIR, "case01_stock",
-        input_text="我建议分阶段先小规模试点")   # → C → Timeline A
+        input_text="我建议分阶段先小规模试点")
     assert ok, errors
     assert summary["_engine_id"] == "experiment-eval"
     assert summary["run_type"] == "rule-dryrun"
-    assert summary["branch"] == "C"
-    assert summary["consistency"]["verdict"] in ("consistent", "unknown")
+    assert summary["branch"] == ""            # 无词表 → 不伪造分支
+    assert summary["consistency"]["verdict"] == "unknown"   # 未知分支 → unknown,非报错
     assert summary["timeline"], "case01 应产出时间线"
     assert summary["timeline"][0]["date"] == "2026-08-27"   # T0 咨询日
 

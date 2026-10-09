@@ -958,12 +958,59 @@ class Agent:
 
         target_tiles = [t for t in target_tiles if not _ignore_target(t)]
         if not target_tiles:
+            # 直接目标格全被占/是墙时:**不要原地放弃**,向目标点四周外扩继续找落点。
+            # 场景:目标 agent 紧邻的 4 格恰好都站着人 → 原实现直接 return [] 不动,
+            # 表现为"别人挡在那儿就过不去了、不会绕"(2026-10-09 用户指出)。
+            # 修法:以目标为中心逐环外扩(R=2,3,4…),取该环内所有可站格;
+            # 仍是同一套 BFS 找路,只是落点从"紧邻 4 格"放宽到"外围最近可达格"。
+            target_tiles = self._outward_walkable(self._target_center(address, agents),
+                                                  agents)
+        if not target_tiles:
             return []
         if len(target_tiles) >= 4:
             target_tiles = random.sample(target_tiles, 4)
         pathes = {t: self.maze.find_path(self.coord, t) for t in target_tiles}
         target = min(pathes, key=lambda p: len(pathes[p]))
         return pathes[target][1:]
+
+    def _target_center(self, address, agents):
+        """目标点坐标:去某 agent 身边 → 那个 agent 的格;去某地址 → 该地址任取一格。"""
+        if address[0] == "<persona>":
+            return tuple(agents[address[1]].coord)
+        tiles = self.maze.get_address_tiles(address)
+        if not tiles:
+            return None
+        return tuple(sorted(tiles)[0])
+
+    def _outward_walkable(self, center, agents, max_r=6):
+        """以 center 为中心逐环外扩,返回第一圈里所有可站格(collision=False 且无人占)。
+
+        只负责"找落点",不判断可达性 —— 可达性交给随后的 find_path(BFS) 处理:
+        若第一圈里全是不可达的孤立格,BFS 会返回空路径,由调用方按空处理。
+        """
+        if center is None:
+            return []
+        cx, cy = center
+        for r in range(2, max_r + 1):
+            ring = []
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    # 只取"正好在第 r 圈"的格子(去掉已被更内圈覆盖的部分)
+                    if max(abs(dx), abs(dy)) != r:
+                        continue
+                    x, y = cx + dx, cy + dy
+                    if not (0 <= x < self.maze.maze_width and 0 <= y < self.maze.maze_height):
+                        continue
+                    c = (x, y)
+                    if self.maze.tile_at(c).collision:
+                        continue
+                    events = self.maze.tile_at(c).get_events()
+                    if any(e.subject in agents for e in events):
+                        continue
+                    ring.append(c)
+            if ring:
+                return ring
+        return []
 
     def _determine_action(self):
         self.logger.info("{} is determining action...".format(self.name))

@@ -139,8 +139,10 @@ class Maze:
                  注意:src 与 dst 自身即便在 blocked 里也照走(否则会被自己/目标卡死)。
         """
         blocked = set(blocked or ())
-        blocked.discard(src_coord)
-        blocked.discard(dst_coord)
+        # src/dst 可能是 list(调用方给的坐标),而 blocked 里存的是 tuple ——
+        # 不归一就 discard 会抛 TypeError: unhashable type: 'list'(2026-10-09 实测)。
+        blocked.discard(tuple(src_coord))
+        blocked.discard(tuple(dst_coord))
         map = [[0 for _ in range(self.maze_width)] for _ in range(self.maze_height)]
         frontier, visited = [src_coord], set()
         map[src_coord[1]][src_coord[0]] = 1

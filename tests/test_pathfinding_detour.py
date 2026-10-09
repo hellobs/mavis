@@ -253,3 +253,39 @@ def _find_corridor(maze, length=5):
                 run = 0
     pytest.skip("maze 里找不到长度 %d 的连续通道" % length)
 
+
+def test_get_around_never_returns_out_of_bounds(maze):
+    """地图边缘格的四邻不能有越界坐标(2026-10-09 实测:会 IndexError 崩模拟)。
+
+    `tile_at` 用自脚下标,越界要么 IndexError(y=H)要么**绕回另一端**(x=-1 取到最后一列),
+    所以 `get_around` 必须先剔越界格再查 tile。本仓是 27x24、最下一行有可站格,
+    修复前 `get_around((0, 23))` 直接抛 IndexError。
+    """
+    w, h = maze.maze_width, maze.maze_height
+    bad = []
+    for y in range(h):
+        for x in range(w):
+            try:
+                around = maze.get_around((x, y))
+            except Exception as e:                      # noqa: BLE001
+                bad.append(((x, y), repr(e)))
+                continue
+            for c in around:
+                if not (0 <= c[0] < w and 0 <= c[1] < h):
+                    bad.append(((x, y), c))
+    assert bad == [], "边缘格的 get_around 抛异常/返回越界格:%s" % (bad[:8],)
+
+
+def test_find_path_from_bottom_row_tile_does_not_crash(maze):
+    """站在地图最下一行(可站)时寻路不能崩 —— 修复前这里 IndexError。
+
+    注意 BFS 内部把最外圈当不可达(`0 < x < w-1`),所以从边缘格出发通常得空路径;
+    本测试只要求**不抛异常**(崩溃会让整场模拟挂掉,比走不到严重得多)。
+    """
+    w, h = maze.maze_width, maze.maze_height
+    bottom = [x for x in range(w) if not maze.tile_at((x, h - 1)).collision]
+    if not bottom:
+        pytest.skip("最下一行没有可站格")
+    for x in bottom:
+        maze.find_path((x, h - 1), (w // 2, h // 2))   # 不应抛异常
+

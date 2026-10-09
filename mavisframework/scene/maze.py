@@ -210,6 +210,12 @@ class Maze:
             (coord[0], coord[1] - 1),
             (coord[0], coord[1] + 1),
         ]
+        # 先剔越界格再查 tile_at。tile_at 用自脚下标,越界不是报错就是**绕回另一端**
+        # (x=-1 取到最后一列、y=H 直接 IndexError) —— 2026-10-09 实测:某场景最下沿
+        # 有若干格是**可站立的**(y=H-1 那一行),角色踩上去后这里立刻 IndexError,
+        # 整场模拟崩掉。越界格本就不该出现在寻路结果里,直接剔除。
+        width, height = self.maze_width, self.maze_height
+        coords = [c for c in coords if 0 <= c[0] < width and 0 <= c[1] < height]
         if no_collision:
             coords = [c for c in coords if not self.tile_at(c).collision]
         return coords

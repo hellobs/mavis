@@ -180,7 +180,10 @@ class Scratch:
                 value = 11
             return value
 
-        return Result(prompt, _callback, 8, wakeupResponse)
+        # 原先这里是 `8` —— 一个**看起来完全正常的起床时间**。解析失败时它会
+        # 静悄悄变成"这人 8 点起床",与模型真给出 8 点无法区分(2026-10-10 统一兜底约定)。
+        # 用 -1:类型不变(int),但不可能是真实起床时间,一眼能认出这是兜底。
+        return Result(prompt, _callback, -1, wakeupResponse)
 
     def prompt_schedule_init(self, wake_up):
         prompt = self.build_prompt(

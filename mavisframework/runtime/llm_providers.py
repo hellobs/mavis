@@ -434,6 +434,13 @@ class OpenAIProvider(_BaseProvider):
             params["max_tokens"] = max_tokens
         if response_format:
             params["response_format"] = response_format
+        # 外部 provider 的**思考开关**(2026-10-10):DeepSeek 系模型默认开着 reasoning,
+        # 实测默认会烧掉 279 个 reasoning token 并回 `reasoning_content`;
+        # 传 `thinking={"type":"disabled"}` 后 reasoning_tokens 归 0、正文直接给,
+        # 而且 completion_tokens 从 367 降到 63(更快更便宜)。
+        # 与本地 Ollama 的 CASE01_LLM_DISABLE_THINKING 同一套语义,故用同名环境变量。
+        if os.environ.get("MAVIS_LLM_DISABLE_THINKING", "").strip() not in ("", "0"):
+            params["thinking"] = {"type": "disabled"}
         # ---- 临时诊断(2026-10-10,定位"Ethan 走外部 API 只回\"嗯\"):----
         # 把**实际发出去的 messages** 与 **DeepSeek 返回的原始 JSON** 打出来。
         # 由环境变量 MAVIS_LLM_TRACE 开关(设成 0/空即关),定位完请把这段与

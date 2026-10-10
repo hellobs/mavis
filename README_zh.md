@@ -4,7 +4,7 @@
 
 自研生成式智能体仿真框架（MAVIS），面向"精细化业务推演"。Agent 在空间环境中自主生活、记忆、反思、决策与交互；框架层保持零渲染依赖（不嵌入 Phaser / Unity / Flask 等前端或服务端框架），前端仅作为协议消息的消费端。接入方通过一小撮稳定的扩展点接进来，框架自身不装业务逻辑。
 
-[![Version](https://img.shields.io/badge/version-1.3.4-7c3aed?style=flat-square&labelColor=1f2328)](pyproject.toml) [![License](https://img.shields.io/badge/license-Apache--2.0-3b82f6?style=flat-square&labelColor=1f2328)](LICENSE) [![Python](https://img.shields.io/badge/python-%E2%89%A5%203.12-3776ab?style=flat-square&labelColor=1f2328)](pyproject.toml) [![Tests](https://img.shields.io/badge/tests-passing-2ea043?style=flat-square&labelColor=1f2328)](tests) [![Runtime deps](https://img.shields.io/badge/runtime%20deps-pydantic%20%2B%20requests-f59e0b?style=flat-square&labelColor=1f2328)](pyproject.toml) [![Extension surface](https://img.shields.io/badge/integrator%20surface-stable-009688?style=flat-square&labelColor=1f2328)](docs/tutorial-extension.md)
+[![Version](https://img.shields.io/badge/version-1.3.5-7c3aed?style=flat-square&labelColor=1f2328)](pyproject.toml) [![License](https://img.shields.io/badge/license-Apache--2.0-3b82f6?style=flat-square&labelColor=1f2328)](LICENSE) [![Python](https://img.shields.io/badge/python-%E2%89%A5%203.12-3776ab?style=flat-square&labelColor=1f2328)](pyproject.toml) [![Tests](https://img.shields.io/badge/tests-passing-2ea043?style=flat-square&labelColor=1f2328)](tests) [![Runtime deps](https://img.shields.io/badge/runtime%20deps-pydantic%20%2B%20requests-f59e0b?style=flat-square&labelColor=1f2328)](pyproject.toml) [![Extension surface](https://img.shields.io/badge/integrator%20surface-stable-009688?style=flat-square&labelColor=1f2328)](docs/tutorial-extension.md)
 
 [English](./README.md) | **简体中文**
 
@@ -96,11 +96,11 @@ pip install -e .
 
 # 或构建 wheel 后安装（发布期/冻结版本）
 pip install .                          # 直接装源码
-python -m build && pip install dist/mavisframework-1.3.4-py3-none-any.whl
+python -m build && pip install dist/mavisframework-1.3.5-py3-none-any.whl
 
 # uv 亦可（可选，工具链自选）
 # uv pip install -e .
-# uv build && uv pip install dist/mavisframework-1.3.4-py3-none-any.whl
+# uv build && uv pip install dist/mavisframework-1.3.5-py3-none-any.whl
 ```
 
 运行依赖仅 `pydantic>=2.0` 与 `requests>=2.31`，无 AI 或渲染框架的硬依赖。
@@ -322,6 +322,7 @@ python app.py            :: 服务地址 http://127.0.0.1:8060/
 
 **版本历史**：
 
+- `1.3.5` —— `OpenAIProvider`:新增 `MAVIS_LLM_DISABLE_THINKING` 开关(DeepSeek 系默认开 reasoning,`effort=low` 在那类端点上无效);新增 `response_format` 的**端点能力记忆**(撞到 400 时打印端点原文、去掉该字段重试一次,并在本进程内不再发送)。所有 prompt 的兜底值统一为字面量 `"__failsafe__"`(保类型),不再用与模型产出无法区分的通顺中文。README 补上 provider 开关、端点能力与兜底值约定三节;文档里的本机绝对路径换成占位符。
 - `1.3.4` —— config_tool 场景表单:词表面板折叠为选填;保存前拦住"会把原有分支词表 / `judge_prompt` / `fallback_map` 抹成空"的提交(保存是 `scenario.yaml` 的整份重写);`branch.judge_prompt` 与 `fallback_map` 补齐 load → save 往返。
 - `1.3.3` —— config_tool 目录自动发现（免环境变量）；README 同步。
 - `1.3.2` —— IVD 治理层教学文档（中英）；Σ=1 守恒与倾向数学的测试固化；回归测试注入 `_NullScorer` 密封。

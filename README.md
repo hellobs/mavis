@@ -4,7 +4,7 @@
 
 A self-developed generative multi-agent simulation framework (MAVIS) for fine-grained business process simulation. Agents live, memorize, reflect, decide and interact within a spatial environment. The framework layer has zero rendering dependencies (it does not embed Phaser, Unity, Flask or any frontend/server framework); frontends act purely as consumers of protocol messages. Integrators plug in through a small, stable set of extension points — the framework itself carries no business logic.
 
-[![Version](https://img.shields.io/badge/version-1.3.4-7c3aed?style=flat-square&labelColor=1f2328)](pyproject.toml) [![License](https://img.shields.io/badge/license-Apache--2.0-3b82f6?style=flat-square&labelColor=1f2328)](LICENSE) [![Python](https://img.shields.io/badge/python-%E2%89%A5%203.12-3776ab?style=flat-square&labelColor=1f2328)](pyproject.toml) [![Tests](https://img.shields.io/badge/tests-passing-2ea043?style=flat-square&labelColor=1f2328)](tests) [![Runtime deps](https://img.shields.io/badge/runtime%20deps-pydantic%20%2B%20requests-f59e0b?style=flat-square&labelColor=1f2328)](pyproject.toml) [![Extension surface](https://img.shields.io/badge/integrator%20surface-stable-009688?style=flat-square&labelColor=1f2328)](docs/tutorial-extension-en.md)
+[![Version](https://img.shields.io/badge/version-1.3.5-7c3aed?style=flat-square&labelColor=1f2328)](pyproject.toml) [![License](https://img.shields.io/badge/license-Apache--2.0-3b82f6?style=flat-square&labelColor=1f2328)](LICENSE) [![Python](https://img.shields.io/badge/python-%E2%89%A5%203.12-3776ab?style=flat-square&labelColor=1f2328)](pyproject.toml) [![Tests](https://img.shields.io/badge/tests-passing-2ea043?style=flat-square&labelColor=1f2328)](tests) [![Runtime deps](https://img.shields.io/badge/runtime%20deps-pydantic%20%2B%20requests-f59e0b?style=flat-square&labelColor=1f2328)](pyproject.toml) [![Extension surface](https://img.shields.io/badge/integrator%20surface-stable-009688?style=flat-square&labelColor=1f2328)](docs/tutorial-extension-en.md)
 
 **English** | [简体中文](./README_zh.md)
 
@@ -101,11 +101,11 @@ pip install -e .
 
 # Release/pinned version: build wheel and install
 pip install .                          # install from source directly
-python -m build && pip install dist/mavisframework-1.3.4-py3-none-any.whl
+python -m build && pip install dist/mavisframework-1.3.5-py3-none-any.whl
 
 # uv also works (optional; toolchain of your choice)
 # uv pip install -e .
-# uv build && uv pip install dist/mavisframework-1.3.4-py3-none-any.whl
+# uv build && uv pip install dist/mavisframework-1.3.5-py3-none-any.whl
 ```
 
 Runtime dependencies are only `pydantic>=2.0` and `requests>=2.31`; there are
@@ -414,6 +414,7 @@ cleanup must add that map to their agent config.
 
 **Version history**:
 
+- `1.3.5` — `OpenAIProvider`: `MAVIS_LLM_DISABLE_THINKING` switch (DeepSeek-family models reason by default; `effort=low` has no effect there) and **endpoint-capability memory** for `response_format` (on a 400 the provider prints the endpoint's own error, retries once without the field, and stops sending it for the rest of the process). Every prompt fallback is now the literal `"__failsafe__"` (type-preserving) instead of well-formed prose that was indistinguishable from model output. README: provider switches, endpoint capability and the `failsafe` convention documented; hard-coded local paths replaced with placeholders.
 - `1.3.4` — config_tool scenario form: word-list panels collapse into optional sections, and a save that would wipe existing branch word lists / `judge_prompt` / `fallback_map` is refused before writing (saving rewrites `scenario.yaml` wholesale); `branch.judge_prompt` and `fallback_map` now round-trip load → save.
 - `1.3.3` — config_tool auto-discovers directories (no environment variables needed); README synced.
 - `1.3.2` — IVD governance-layer tutorial docs (zh/en); Σ=1 conservation and tendency math pinned by tests; regression tests sealed with an injected `_NullScorer`.

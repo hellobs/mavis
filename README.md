@@ -184,6 +184,42 @@ mavisframework/
 | `MAVIS_STATIC_ROOT` | `frontend/static` | frontend static root (compressor) |
 | `MAVIS_CHECKPOINTS_ROOT` | `results/checkpoints` | checkpoints root |
 
+### LLM provider switches
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MAVIS_LLM_DISABLE_THINKING` | off | **Turn off reasoning** for OpenAI-compatible providers. DeepSeek-family models reason **by default**; measured on one prompt, reasoning used 279 tokens and the answer came back with a separate `reasoning_content`. Sending `thinking={"type":"disabled"}` drops reasoning to 0 and cuts completion from 367 to 63 tokens. Note `effort=low` does **not** work on DeepSeek. |
+| `MAVIS_LLM_TRACE` | off | **Diagnostic**: dump the outgoing `messages` and the raw provider response to stdout. Turn off once the issue is found. |
+
+### Endpoint capability: `response_format`
+
+Not every OpenAI-compatible endpoint accepts `response_format`. DeepSeek answers **HTTP 400**
+(`This response_format type is unavailable now`) for the whole family — `json_schema`
+*and* `json_object`. The provider handles this for you:
+
+1. first call sends what the caller asked for;
+2. on 400 it prints the endpoint's own error, **retries once without `response_format`**,
+   and **remembers that this endpoint does not support it** — later calls skip the field
+   entirely instead of burning two requests each.
+
+So on such endpoints the model is free to answer in whatever shape the prompt's examples
+imply — bare words, Python literals, fenced blocks. Callers must tolerate that.
+
+## 4b. Fallback values (`failsafe`)
+
+Every prompt in `mavisframework/prompt/scratch.py` carries a `failsafe`, returned **instead
+of** the model's output when the call fails.
+
+**All fallbacks are the literal string `"__failsafe__"`**, type-preserving (a list stays a
+list, a dict stays a dict, an `Event` stays an `Event`). Only `False` is kept as-is — it
+means "there is nothing here", not a fabricated sentence.
+
+Why one marker: earlier the fallbacks were **well-formed prose** — "X's words went
+unanswered", "X had a conversation", even a fully written daily schedule. Once such a value
+reached an artifact it was **indistinguishable from real model output**, so a reader would
+believe the model had said something it never said. Treat any `__failsafe__` in a record as
+"this field is missing, not modelled".
+
 ## 5. Layering
 
 ```
@@ -337,8 +373,8 @@ frontend assets and scenario directories. Both locations are **declared explicit
 Startup example (Windows):
 
 ```bat
-cd D:\zzr\mavis\config_tool
-set CASE_ENGINE_DIR=D:\zzr\provenance\provenance
+cd <MAVIS_REPO>\config_tool
+set CASE_ENGINE_DIR=<CASE_ENGINE_DIR>
 python app.py            :: http://127.0.0.1:8060/
 ```
 

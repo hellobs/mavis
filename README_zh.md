@@ -175,6 +175,27 @@ mavisframework/
 | `MAVIS_ASSETS_ROOT` | `assets/village` | 静态资源相对根 |
 | `MAVIS_STATIC_ROOT` | `frontend/static` | 前端静态资源根(compressor) |
 | `MAVIS_CHECKPOINTS_ROOT` | `results/checkpoints` | 存档根目录 |
+| `MAVIS_CHECKPOINTS_ROOT` | `results/checkpoints` | 检查点目录 |
+
+### LLM provider 开关
+
+| 环境变量 | 默认 | 作用 |
+|---|---|---|
+| `MAVIS_LLM_DISABLE_THINKING` | 关 | 给 OpenAI 兼容 provider **关掉思考**。DeepSeek 系模型**默认开着 reasoning**——实测同一个 prompt烧掉 279 个 reasoning token、正文另给`reasoning_content`;下发 `thinking={"type":"disabled"}` 后 reasoning 归 0、completion 从 367 降到 63 token。注意 DeepSeek 上 `effort=low` **无效**。 |
+| `MAVIS_LLM_TRACE` | 关 | **诊断用**：把发出去的 `messages` 与 provider 的原始响应打到 stdout。定位完请关掉。 |
+
+### 端点能力：`response_format`
+
+不是所有 OpenAI 兼容端点都接受 `response_format`。DeepSeek 对**整个家族**都回 **HTTP 400**
+（`This response_format type is unavailable now`），`json_schema` 与 `json_object` 均如此。
+provider 会替你处理：
+
+1. 第一次调用按调用方要求的格式发；
+2. 撞到 400 时**打印端点自己的错误原文**、**去掉该字段重试一次**，并**记住这个端点不支持**——
+   之后的调用直接不发，而不是每次白费两个请求。
+
+因此在这类端点上，模型会按提示词里的例子自由作答——裸词、Python 字面量、带``` 围栏的块都可能。
+调用方必须容忍这些形态。
 
 ## 5. 分层关系
 
@@ -271,8 +292,8 @@ config_tool 是**实现侧的配套工具**：它需要用运行方式的注册�
 启动示例（Windows）：
 
 ```bat
-cd D:\zzr\mavis\config_tool
-set CASE_ENGINE_DIR=D:\zzr\provenance\provenance
+cd <MAVIS_REPO>\config_tool
+set CASE_ENGINE_DIR=<CASE_ENGINE_DIR>
 python app.py            :: 服务地址 http://127.0.0.1:8060/
 ```
 

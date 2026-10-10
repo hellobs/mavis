@@ -12,6 +12,14 @@ from mavisframework.core.event import Event
 
 Result = namedtuple("Result", ["prompt", "callback", "failsafe", "return_type"])
 
+# ⚠ failsafe 的统一约定(2026-10-10):**兜底值一律是 "__failsafe__"**。
+# 为什么要统一:早先这里的兜底值是一句**看起来完全正常的中文**(例如 "X 说的话没有得到回应"、
+# "X 进行了一次对话"、甚至一份编好的作息表)。它落进产物后与模型产出**无法区分** ——
+# 下游看到的是一句不存在的话,以为模型真这么说了(这个坑让排查绕了三圈)。
+# 现在:凡兜底都是 "__failsafe__";**保类型**(list/dict/Event 仍是原来的形状),
+# 免得下游按结构迭代时被字符串的字符序列坑到。
+# ⚠ `False` 是例外:它表示"本来就没有"(例如该角色此刻没在想什么),不是伪造的话,保留。
+
 # 模板目录:默认包内 prompts/ 目录;可用环境变量 MAVIS_PROMPT_DIR 覆盖
 _DEFAULT_TEMPLATE_DIR = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "prompts"
@@ -192,15 +200,7 @@ class Scratch:
             assert len(response) >= 3, "schedule_init: too few items"
             return response
 
-        failsafe = [
-            "Wake up at 6 AM and complete the morning routine",
-            "Have breakfast at 7 AM",
-            "Read a book at 8 AM",
-            "Have lunch at noon",
-            "Take a short nap at 1 PM",
-            "Relax and watch TV at 7 PM",
-            "Go to sleep at 11 PM",
-        ]
+        failsafe = ["__failsafe__"]
         return Result(prompt, _callback, failsafe, schedule_initResponse)
 
     def prompt_schedule_daily(self, wake_up, daily_schedule):
@@ -240,26 +240,7 @@ class Scratch:
         class schedule_dailyResponse(BaseModel):
             res: dict[str, str] = Field(description="24小时日程表，键为时间字符串如'8:00'，值为该时段的活动描述")
 
-        failsafe = {
-            "6:00": "起床并完成早晨的例行工作",
-            "7:00": "吃早餐",
-            "8:00": "读书",
-            "9:00": "读书",
-            "10:00": "读书",
-            "11:00": "读书",
-            "12:00": "吃午饭",
-            "13:00": "小睡一会儿",
-            "14:00": "小睡一会儿",
-            "15:00": "小睡一会儿",
-            "16:00": "继续工作",
-            "17:00": "继续工作",
-            "18:00": "回家",
-            "19:00": "放松，看电视",
-            "20:00": "放松，看电视",
-            "21:00": "睡前看书",
-            "22:00": "准备睡觉",
-            "23:00": "睡觉",
-        }
+        failsafe = {"__failsafe__": "schedule_daily"}
 
         def _callback(response):
             assert len(response) >= 5, "less than 5 schedules"
@@ -300,7 +281,7 @@ class Scratch:
                 response.append((plan["describe"], left))
             return response
 
-        failsafe = [(plan["describe"], 10) for _ in range(int(plan["duration"] / 10))]
+        failsafe = [("__failsafe__", 10)]
         return Result(prompt, _callback, failsafe, schedule_decomposeResponse)
 
     def prompt_schedule_revise(self, action, schedule):
@@ -393,7 +374,7 @@ class Scratch:
             arenas.update(
                 {a: sec for a in spatial.get_leaves(address + [sec]) if a not in arenas}
             )
-        failsafe = random.choice(sectors)
+        failsafe = "__failsafe__"
 
         class determine_sectorResponse(BaseModel):
             res: str = Field(description="从给定列表中选出的目标区域名称，必须与列表中的某项完全一致")
@@ -425,7 +406,7 @@ class Scratch:
         )
 
         arenas = spatial.get_leaves(address)
-        failsafe = random.choice(arenas)
+        failsafe = "__failsafe__"
 
         class determine_arenaResponse(BaseModel):
             res: str = Field(description="从给定列表中选出的目标场所名称，必须与列表中的某项完全一致")
@@ -446,7 +427,7 @@ class Scratch:
             }
         )
 
-        failsafe = random.choice(objects)
+        failsafe = "__failsafe__"
 
         class determine_objectResponse(BaseModel):
             res: str = Field(description="从给定列表中选出的最相关对象名称，必须与列表中的某项完全一致")
@@ -467,8 +448,10 @@ class Scratch:
         e_describe = describe.replace("(", "").replace(")", "").replace("<", "").replace(">", "")
         if e_describe.startswith(subject + "此时"):
             e_describe = e_describe.replace(subject + "此时", "")
+        # Event 形状保留(下游按对象取属性),但**内容**换成标记 —— 原来这里凭空造一个
+        # "此时发生了什么"的事件,看着与模型产出的一模一样。
         failsafe = Event(
-            subject, "此时", e_describe, describe=describe, address=address, emoji=emoji
+            subject, "__failsafe__", "__failsafe__", address=address, emoji=emoji
         )
         class describe_eventResponse(BaseModel):
             res: List[Tuple[str, str, str]] = Field(description="动作的三元组列表，每项为 [主语, 谓语, 宾语]")
@@ -503,7 +486,7 @@ class Scratch:
                 response = response[len(obj):].strip()
             return response or failsafe
 
-        failsafe = "空闲"
+        failsafe = "__failsafe__"
         return Result(prompt, _callback, failsafe, DescribeObjectResponse)
 
     def prompt_decide_chat(self, agent, other, focus, chats):
@@ -672,7 +655,7 @@ class Scratch:
                 "another": other_name,
             }
         )
-        failsafe = agent.name + " 正在看着 " + other_name
+        failsafe = "__failsafe__"
         class summarize_relationResponse(BaseModel):
             res: str = Field(description="一句话描述两人之间的关系，以第三人称表述")
 
@@ -751,7 +734,7 @@ class Scratch:
                 response = response[len(agent.name) + 1:].strip()
             return response or failsafe
 
-        failsafe = "嗯"
+        failsafe = "__failsafe__"
         return Result(prompt, _callback, failsafe, generate_chat)
 
     def prompt_generate_chat_check_repeat(self, agent, chats, content):
@@ -797,9 +780,9 @@ class Scratch:
             return response.strip()
 
         if len(chats) > 1:
-            failsafe = "{} 和 {} 之间的普通对话".format(chats[0][0], chats[1][0])
+            failsafe = "__failsafe__"
         else:
-            failsafe = "{} 说的话没有得到回应".format(chats[0][0])
+            failsafe = "__failsafe__"
 
         return Result(prompt, _callback, failsafe, summarize_chatsResponse)
 
@@ -819,11 +802,7 @@ class Scratch:
             assert len(response) >= 1, "reflect_focus: empty list"
             return response
 
-        failsafe = [
-                "{} 是谁？".format(self.name),
-                "{} 住在哪里？".format(self.name),
-                "{} 今天要做什么？".format(self.name),
-            ]
+        failsafe = ["__failsafe__"]
         return Result(prompt, _callback, failsafe, reflect_focusResponse)
 
     def prompt_reflect_insights(self, nodes, topk):
@@ -847,12 +826,7 @@ class Scratch:
                 insights.append([insight.strip(), node_ids])  
             return insights
 
-        failsafe = [
-                [
-                    "{} 在考虑下一步该做什么".format(self.name),
-                    [nodes[0].node_id],
-                ]
-            ]
+        failsafe = [["__failsafe__", [nodes[0].node_id]]]
         return Result(prompt, _callback, failsafe, reflect_insightsResponse)
 
     def prompt_reflect_chat_planing(self, chats):
@@ -872,7 +846,7 @@ class Scratch:
         def _callback(response):
             return response.strip() or failsafe
 
-        failsafe = f"{self.name} 进行了一次对话"
+        failsafe = "__failsafe__"
         return Result(prompt, _callback, failsafe, reflect_chat_planingResponse)
 
     def prompt_reflect_chat_memory(self, chats):
@@ -891,7 +865,7 @@ class Scratch:
         def _callback(response):
             return response.strip() or failsafe
 
-        failsafe = f"{self.name} 进行了一次对话"
+        failsafe = "__failsafe__"
         return Result(prompt, _callback, failsafe, reflect_chat_memoryResponse)
 
     def prompt_retrieve_plan(self, nodes):
@@ -915,7 +889,7 @@ class Scratch:
             assert len(response) >= 1, "retrieve_plan: empty list"
             return response
 
-        failsafe = [r.describe for r in random.choices(nodes, k=5)]
+        failsafe = ["__failsafe__"]
         return Result(prompt, _callback, failsafe, retrieve_planResponse)
 
     def prompt_retrieve_thought(self, nodes):
@@ -937,7 +911,7 @@ class Scratch:
         def _callback(response):
             return response.strip() or failsafe
 
-        failsafe = "{} 应该遵循昨天的日程".format(self.name)
+        failsafe = "__failsafe__"
         return Result(prompt, _callback, failsafe, retrieve_thoughtResponse)
 
     def prompt_retrieve_currently(self, plan_note, thought_note):
@@ -963,6 +937,6 @@ class Scratch:
         def _callback(response):
             return response.strip() or failsafe
 
-        failsafe = self.currently
+        failsafe = "__failsafe__"
 
         return Result(prompt, _callback, failsafe, retrieve_currentlyResponse)

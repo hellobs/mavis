@@ -90,12 +90,12 @@ scenarios/<业务>/relationships.json + story.json
 | 关系 | `relationships.json`(追加) | `scenarios/<business>/relationships.json` |
 | 剧情 | `story.json`(追加) | `scenarios/<business>/story.json` |
 
-在本机(仓库并列布局)的具体路径:
+在本机(仓库并列布局)的具体路径(`<CASE_ENGINE_DIR>` = 引擎包根目录):
 
 ```
-D:\zzr\provenance\provenance\frontend\static\assets\village\agents\<角色名>\agent.json
-D:\zzr\provenance\provenance\scenarios\investment\relationships.json
-D:\zzr\provenance\provenance\scenarios\investment\story.json
+<CASE_ENGINE_DIR>\frontend\static\assets\village\agents\<角色名>\agent.json
+<CASE_ENGINE_DIR>\scenarios\investment\relationships.json
+<CASE_ENGINE_DIR>\scenarios\investment\story.json
 ```
 
 **路径解析(顺序:显式参数 → 环境变量 → 本地设置文件 → 自动发现)**:

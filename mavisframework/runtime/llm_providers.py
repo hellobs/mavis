@@ -441,23 +441,7 @@ class OpenAIProvider(_BaseProvider):
         # 与本地 Ollama 的 DISABLE_THINKING 开关同一套语义,故用同名环境变量。
         if os.environ.get("MAVIS_LLM_DISABLE_THINKING", "").strip() not in ("", "0"):
             params["thinking"] = {"type": "disabled"}
-        # ---- 临时诊断(2026-10-10,定位"该角色 走外部 API 只回\"嗯\"):----
-        # 把**实际发出去的 messages** 与 **DeepSeek 返回的原始 JSON** 打出来。
-        # 由环境变量 MAVIS_LLM_TRACE 开关(设成 0/空即关),定位完请把这段与
-        # 本地私密配置文件 里的 MAVIS_LLM_TRACE 一并撤掉。
-        _trace = os.environ.get("MAVIS_LLM_TRACE", "").strip() not in ("", "0")
-        if _trace:
-            try:
-                print("[llm-trace] POST {}/chat/completions  model={}".format(
-                    self._base_url, params.get("model")), flush=True)
-                print("[llm-trace] params: {}".format(
-                    json.dumps({k: v for k, v in params.items() if k != "messages"},
-                               ensure_ascii=False)), flush=True)
-                print("[llm-trace] messages({} 条): {}".format(
-                    len(messages),
-                    json.dumps(messages, ensure_ascii=False)[:6000]), flush=True)
-            except Exception as e:  # 诊断代码不许影响主流程
-                print("[llm-trace] dump failed: {}".format(e), flush=True)
+
         response = requests.post(
             url=f"{self._base_url}/chat/completions",
             headers=headers,
@@ -467,19 +451,6 @@ class OpenAIProvider(_BaseProvider):
         )
         _raise_for_status(response)
         data = response.json()
-        if _trace:
-            try:
-                print("[llm-trace] <- raw: {}".format(
-                    json.dumps(data, ensure_ascii=False)[:6000]), flush=True)
-            except Exception as e:
-                print("[llm-trace] raw dump failed: {} / text={}".format(
-                    e, (response.text or "")[:2000]), flush=True)
         if data and len(data.get("choices", [])) > 0:
-            msg = data["choices"][0].get("message") or {}
-            if _trace:
-                print("[llm-trace] content={!r} reasoning={!r} finish={!r}".format(
-                    str(msg.get("content"))[:800],
-                    str(msg.get("reasoning_content"))[:400],
-                    (data["choices"][0] or {}).get("finish_reason")), flush=True)
-            return msg.get("content")
+            return data["choices"][0]["message"]["content"]
         return ""

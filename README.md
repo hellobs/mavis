@@ -325,7 +325,7 @@ framework route (FastAPI + WebSocket consuming framework contract messages).
   `agent.json` / `relationships.json` / `story.json` validated by this
   framework's validator, written into the Provenance platform's `agents/` and
   `scenarios/` directories. Engine access lives in `config_tool/engine_bridge.py`.
-  See `config_tool/README.md`.
+  See `config_tool/README.md`**（提交件，不随仓发布；副本在 `GTC/archive/`）**.
 - **`../provenance/tools/tilemap_to_maze.py`** — CLI converter (Tiled map →
   `maze.json`) for the Provenance platform; no external deps. Its output is
   consumed by `mavisframework/scene/maze.py`. See
@@ -379,7 +379,7 @@ python app.py            :: http://127.0.0.1:8060/
 ```
 
 Every engine contact point is consolidated in `config_tool/engine_bridge.py`; the other
-modules only call into it. See `config_tool/README.md`.
+modules only call into it. See `config_tool/README.md`**（提交件，不随仓发布；副本在 `GTC/archive/`）**.
 
 ## 11. Status
 
